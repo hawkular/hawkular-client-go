@@ -1,5 +1,54 @@
 package metrics
 
+import (
+	"fmt"
+)
+
+// MetricType restrictions
+type MetricType int
+
+const (
+	Numeric = iota
+	Availability
+	Counter
+	Generic
+)
+
+var longForm = []string{
+	"gauges",
+	"availability",
+	"counter",
+	"metrics",
+}
+
+var shortForm = []string{
+	"gauge",
+	"availability",
+	"counter",
+	"metrics",
+}
+
+func (self MetricType) validate() error {
+	if int(self) > len(longForm) && int(self) > len(shortForm) {
+		return fmt.Errorf("Given MetricType value %d is not valid", self)
+	}
+	return nil
+}
+
+func (self MetricType) String() string {
+	if err := self.validate(); err != nil {
+		return "unknown"
+	}
+	return longForm[self]
+}
+
+func (self MetricType) shortForm() string {
+	if err := self.validate(); err != nil {
+		return "unknown"
+	}
+	return shortForm[self]
+}
+
 // Hawkular-Metrics external structs
 
 type MetricHeader struct {

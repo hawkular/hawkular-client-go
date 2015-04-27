@@ -3,6 +3,8 @@ package metrics
 import (
 	"crypto/rand"
 	"fmt"
+	assert "github.com/stretchr/testify/require"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -30,95 +32,111 @@ func createError(err error) {
 
 func TestCreate(t *testing.T) {
 	c, err := integrationClient()
-	if err != nil {
-		t.Error(err.Error())
-	}
+	assert.Nil(t, err)
 
-	md := MetricDefinition{Id: "test.metric.create.numeric.1"}
-	if _, err = c.Create(Numeric, md); err != nil {
-		t.Error(err.Error())
-	}
+	id := "test.metric.create.numeric.1"
+	md := MetricDefinition{Id: id}
+	ok, err := c.Create(Numeric, md)
+	assert.True(t, ok, "MetricDefinition should have been created")
+	assert.Nil(t, err)
 
 	// Try to recreate the same..
-	ok, err := c.Create(Numeric, md)
-	if ok {
-		t.Error("Should have received fail when recreating them same metric")
-	}
-	if err != nil {
-		t.Errorf("Could not parse error reply from Hawkular, %s", err.Error())
-	}
+	ok, err = c.Create(Numeric, md)
+	assert.False(t, ok, "Should have received fail when recreating them same metric")
+	assert.Nil(t, err)
 
 	// Use tags and dataRetention
-
 	tags := make(map[string]string)
 	tags["units"] = "bytes"
 	tags["env"] = "unittest"
 	md_tags := MetricDefinition{Id: "test.metric.create.numeric.2", Tags: tags}
-	if _, err = c.Create(Numeric, md_tags); err != nil {
-		t.Errorf(err.Error())
-	}
+
+	ok, err = c.Create(Numeric, md_tags)
+	assert.True(t, ok, "MetricDefinition should have been created")
+	assert.Nil(t, err)
 
 	md_reten := MetricDefinition{Id: "test.metric.create.availability.1", RetentionTime: 12}
-	if _, err = c.Create(Availability, md_reten); err != nil {
-		t.Errorf(err.Error())
+	ok, err = c.Create(Availability, md_reten)
+	assert.True(t, ok, "MetricDefinition should have been created")
+	assert.Nil(t, err)
+
+	// Fetch all the previously created metrics and test equalities..
+	mdq, err := c.QueryMetricDefinitions(Numeric)
+	assert.Nil(t, err)
+	assert.Equal(t, 2, len(mdq), "Size of the returned gauge metrics does not match 2")
+
+	mdm := make(map[string]MetricDefinition)
+	for _, v := range mdq {
+		mdm[v.Id] = *v
 	}
 
+	assert.Equal(t, md.Id, mdm[id].Id)
+	assert.True(t, reflect.DeepEqual(tags, mdm["test.metric.create.numeric.2"].Tags))
+
+	mda, err := c.QueryMetricDefinitions(Availability)
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(mda))
+	assert.Equal(t, 12, mda[0].RetentionTime)
 }
 
 func TestAddNumericSingle(t *testing.T) {
 	c, err := integrationClient()
-	if err != nil {
-		t.Error(err.Error())
-	}
+	assert.Nil(t, err)
 
 	// With timestamp
 	m := Metric{Timestamp: time.Now().UnixNano() / 1e6, Value: 1.34}
-	if err = c.PushSingleNumericMetric("test.numeric.single.1", m); err != nil {
-		t.Error(err.Error())
-	}
+	err = c.PushSingleNumericMetric("test.numeric.single.1", m)
+	assert.Nil(t, err)
 
 	// Without preset timestamp
 	m = Metric{Value: 2}
-	if err = c.PushSingleNumericMetric("test.numeric.single.2", m); err != nil {
-		t.Error(err.Error())
-	}
+	err = c.PushSingleNumericMetric("test.numeric.single.2", m)
+	assert.Nil(t, err)
 
 	// Query for both metrics and check that they're correctly filled
 	params := make(map[string]string)
 	metrics, err := c.QuerySingleNumericMetric("test.numeric.single.1", params)
-	if err != nil {
-		t.Error(err)
-	}
-
-	if len(metrics) != 1 {
-		t.Errorf("Received %d metrics instead of 1", len(metrics))
-	}
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(metrics), "Received more datapoints than written")
 
 	metrics, err = c.QuerySingleNumericMetric("test.numeric.single.2", params)
-
-	if len(metrics) != 1 {
-		t.Errorf("Received %d metrics instead of 1", len(metrics))
-	} else {
-		if metrics[0].Timestamp < 1 {
-			t.Error("Timestamp was not correctly populated")
-		}
-	}
-
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(metrics), "Received more datapoints than written")
+	assert.False(t, metrics[0].Timestamp < 1, "Timestamp was not correctly populated")
 }
 
-// func TestTagsModification(t *testing.T) {
-// 	if c, err := integrationClient(); err == nil {
-// 		// Create metric without tags
+func TestTagsModification(t *testing.T) {
+	if c, err := integrationClient(); err == nil {
+		id := "test.tags.modify.1"
+		// Create metric without tags
+		md := MetricDefinition{Id: id}
+		ok, err := c.Create(Numeric, md)
+		assert.True(t, ok, "MetricDefinition should have been created")
+		assert.Nil(t, err)
 
-// 		// Add tags
+		// Add tags
+		tags := make(map[string]string)
+		tags["ab"] = "ac"
+		tags["host"] = "test"
+		err = c.UpdateTags(Numeric, id, tags)
+		assert.Nil(t, err)
 
-// 		// Fetch metric definition - check for tags
+		// Fetch metric tags - check for equality
+		md_tags, err := c.QueryMetricTags(Numeric, id)
+		assert.Nil(t, err)
 
-// 		// Delete some metric tags
+		assert.True(t, reflect.DeepEqual(tags, *md_tags), "Tags did not match the updated ones")
 
-// 		// Fetch metric - check that tags were deleted
-// 	}
-// }
+		// Delete some metric tags
+		err = c.DeleteTags(Numeric, id, tags)
+		assert.Nil(t, err)
+
+		// Fetch metric - check that tags were deleted
+		md_tags, err = c.QueryMetricTags(Numeric, id)
+		assert.Nil(t, err)
+		assert.False(t, len(*md_tags) > 0, "Received deleted tags")
+	}
+}
 
 func TestTags(t *testing.T) {
 	if c, err := integrationClient(); err == nil {
@@ -170,7 +188,7 @@ func TestAddMixedMulti(t *testing.T) {
 			t.Error(err)
 		}
 
-		var getMetric = func(id string) []Metric {
+		var getMetric = func(id string) []*Metric {
 			metric, err := c.QuerySingleNumericMetric(id, make(map[string]string))
 			if err != nil {
 				t.Error(err)
@@ -194,15 +212,10 @@ func TestAddMixedMulti(t *testing.T) {
 
 func TestCheckErrors(t *testing.T) {
 	c, err := integrationClient()
-	if err != nil {
-		t.Fail()
-	}
+	assert.Nil(t, err)
 
-	if err = c.PushSingleNumericMetric("test.number.as.string", Metric{Value: "notFloat"}); err == nil {
-		t.Fail()
-	}
-
-	if _, err = c.QuerySingleNumericMetric("test.not.existing", make(map[string]string)); err != nil {
-		t.Error("Not existing should not generate an error")
-	}
+	err = c.PushSingleNumericMetric("test.number.as.string", Metric{Value: "notFloat"})
+	assert.NotNil(t, err, "Invalid non-float value should not be accepted")
+	_, err = c.QuerySingleNumericMetric("test.not.existing", make(map[string]string))
+	assert.Nil(t, err, "Querying empty metric should not generate an error")
 }

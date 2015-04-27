@@ -5,54 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"math"
 	"net/http"
 	"net/url"
-	"strconv"
+	"strings"
 	"time"
 )
-
-// MetricType restrictions
-type MetricType int
-
-const (
-	Numeric = iota
-	Availability
-	Counter
-)
-
-var longForm = []string{
-	"gauges",
-	"availability",
-	"counter",
-}
-
-var shortForm = []string{
-	"gauge",
-	"availability",
-	"counter",
-}
-
-func (self MetricType) validate() error {
-	if int(self) > len(longForm) && int(self) > len(shortForm) {
-		return fmt.Errorf("Given MetricType value %d is not valid", self)
-	}
-	return nil
-}
-
-func (self MetricType) String() string {
-	if err := self.validate(); err != nil {
-		return "unknown"
-	}
-	return longForm[self]
-}
-
-func (self MetricType) shortForm() string {
-	if err := self.validate(); err != nil {
-		return "unknown"
-	}
-	return shortForm[self]
-}
 
 // More detailed error
 
@@ -77,6 +34,7 @@ type Parameters struct {
 type Client struct {
 	Tenant  string
 	Baseurl string
+	client  *http.Client
 }
 
 func NewHawkularClient(p Parameters) (*Client, error) {
@@ -84,6 +42,7 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 	return &Client{
 		Baseurl: url,
 		Tenant:  p.Tenant,
+		client:  &http.Client{},
 	}, nil
 }
 
@@ -108,6 +67,63 @@ func (self *Client) Create(t MetricType, md MetricDefinition) (bool, error) {
 
 }
 
+func (self *Client) QueryMetricDefinitions(t MetricType) ([]*MetricDefinition, error) {
+	q := make(map[string]string)
+	q["type"] = t.shortForm()
+	url, err := self.paramUrl(self.metricsUrl(Generic), q)
+	if err != nil {
+		return nil, err
+	}
+	b, err := self.get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	md := []*MetricDefinition{}
+	if b != nil {
+		if err = json.Unmarshal(b, &md); err != nil {
+			return nil, err
+		}
+	}
+
+	return md, nil
+}
+
+func (self *Client) QueryMetricTags(t MetricType, id string) (*map[string]string, error) {
+	b, err := self.get(self.tagsUrl(t, id))
+	if err != nil {
+		return nil, err
+	}
+
+	md := MetricDefinition{}
+	// Repetive code.. clean up with other queries to somewhere..
+	if b != nil {
+		if err = json.Unmarshal(b, &md); err != nil {
+			return nil, err
+		}
+	}
+
+	return &md.Tags, nil
+}
+
+func (self *Client) UpdateTags(t MetricType, id string, tags map[string]string) error {
+	b, err := json.Marshal(tags)
+	if err != nil {
+		return err
+	}
+	return self.put(self.tagsUrl(t, id), b)
+}
+
+func (self *Client) DeleteTags(t MetricType, id string, deleted map[string]string) error {
+	tags := make([]string, 0, len(deleted))
+	for k, v := range deleted {
+		tags = append(tags, fmt.Sprintf("%s:%s", k, v))
+	}
+	j := strings.Join(tags, ",")
+	url := fmt.Sprintf("%s/%s", self.tagsUrl(t, id), j)
+	return self.del(url)
+}
+
 // Take input of single Metric instance. If Timestamp is not defined, use current time
 func (self *Client) PushSingleNumericMetric(id string, m Metric) error {
 
@@ -127,8 +143,25 @@ func (self *Client) PushSingleNumericMetric(id string, m Metric) error {
 	return self.WriteMultiple(Numeric, []MetricHeader{mH})
 }
 
-func (self *Client) QuerySingleNumericMetric(id string, options map[string]string) ([]Metric, error) {
-	return self.query(self.dataUrl(self.singleMetricsUrl(Numeric, id)), options)
+func (self *Client) QuerySingleNumericMetric(id string, options map[string]string) ([]*Metric, error) {
+	url, err := self.paramUrl(self.dataUrl(self.singleMetricsUrl(Numeric, id)), options)
+	if err != nil {
+		return nil, err
+	}
+	b, err := self.get(url)
+	if err != nil {
+		return nil, err
+	}
+	metrics := []*Metric{}
+
+	if b != nil {
+		if err = json.Unmarshal(b, &metrics); err != nil {
+			return nil, err
+		}
+	}
+
+	return metrics, nil
+
 }
 
 // func (self *Client) QueryNumericsWithTags(id string, tags map[string]string) ([]MetricDefinition, error) {
@@ -151,42 +184,26 @@ func (self *Client) WriteMultiple(metricType MetricType, metrics []MetricHeader)
 
 // Need tag support here also..
 
-func (self *Client) query(url string, options map[string]string) ([]Metric, error) {
-	g, err := self.paramUrl(url, options)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := http.Get(g)
+func (self *Client) get(url string) ([]byte, error) {
+	resp, err := self.client.Get(url)
 	if err != nil {
 		return nil, err
 	}
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusNoContent {
-		return []Metric{}, nil
-	} else if resp.StatusCode == http.StatusOK {
+	if resp.StatusCode == http.StatusOK {
 		b, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		metrics := []Metric{}
-		err = json.Unmarshal(b, &metrics)
-		if err != nil {
-			return nil, err
-		}
-		return metrics, nil
-	} else {
+		return b, err
+	} else if resp.StatusCode > 399 {
 		return nil, self.parseErrorResponse(resp)
+	} else {
+		return nil, nil // Nothing to answer..
 	}
 }
 
-// func (self *Client) get(url string,
-
 func (self *Client) post(url string, json []byte) error {
-	if resp, err := http.Post(url, "application/json", bytes.NewBuffer(json)); err == nil {
+	if resp, err := self.client.Post(url, "application/json", bytes.NewBuffer(json)); err == nil {
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
@@ -196,6 +213,32 @@ func (self *Client) post(url string, json []byte) error {
 	} else {
 		return err
 	}
+}
+
+func (self *Client) put(url string, json []byte) error {
+	return self.execHttp(url, "PUT", json)
+}
+
+func (self *Client) execHttp(url string, method string, json []byte) error {
+	req, _ := http.NewRequest(method, url, bytes.NewReader(json))
+	req.Header.Add("Content-Type", "application/json")
+	resp, err := self.client.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return self.parseErrorResponse(resp)
+	}
+
+	return nil
+}
+
+func (self *Client) del(url string) error {
+	return self.execHttp(url, "DELETE", nil)
 }
 
 func (self *Client) parseErrorResponse(resp *http.Response) error {
@@ -239,6 +282,10 @@ func (self *Client) singleMetricsUrl(metricType MetricType, id string) string {
 	return fmt.Sprintf("%s/%s", self.metricsUrl(metricType), id)
 }
 
+func (self *Client) tagsUrl(mt MetricType, id string) string {
+	return fmt.Sprintf("%s/tags", self.singleMetricsUrl(mt, id))
+}
+
 func (self *Client) dataUrl(url string) string {
 	return fmt.Sprintf("%s/data", url)
 }
@@ -254,48 +301,4 @@ func (self *Client) paramUrl(starturl string, options map[string]string) (string
 	}
 	u.RawQuery = q.Encode()
 	return u.String(), nil
-}
-
-// Following methods are to ease the work of the client users
-
-func ConvertToFloat64(v interface{}) (float64, error) {
-	switch i := v.(type) {
-	case float64:
-		return float64(i), nil
-	case float32:
-		return float64(i), nil
-	case int64:
-		return float64(i), nil
-	case int32:
-		return float64(i), nil
-	case int16:
-		return float64(i), nil
-	case int8:
-		return float64(i), nil
-	case uint64:
-		return float64(i), nil
-	case uint32:
-		return float64(i), nil
-	case uint16:
-		return float64(i), nil
-	case uint8:
-		return float64(i), nil
-	case int:
-		return float64(i), nil
-	case uint:
-		return float64(i), nil
-	case string:
-		f, err := strconv.ParseFloat(i, 64)
-		if err != nil {
-			return math.NaN(), err
-		}
-		return f, err
-	default:
-		return math.NaN(), fmt.Errorf("Cannot convert %s to float64", i)
-	}
-}
-
-// Returns milliseconds since epoch
-func UnixMilli(t time.Time) int64 {
-	return t.UnixNano() / 1e6
 }
