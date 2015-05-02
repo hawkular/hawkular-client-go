@@ -35,6 +35,8 @@ type Client struct {
 	Tenant  string
 	Baseurl string
 	client  *http.Client
+
+	// Add statistics here? Mean time, avg time, max, min etc.. ?
 }
 
 func NewHawkularClient(p Parameters) (*Client, error) {
@@ -50,12 +52,12 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 
 // Creates a new metric, and returns true if creation succeeded, false if not (metric was already created).
 // err is returned only in case of another error than 'metric already created'
-func (self *Client) Create(t MetricType, md MetricDefinition) (bool, error) {
+func (self *Client) Create(md MetricDefinition) (bool, error) {
 	jsonb, err := json.Marshal(&md)
 	if err != nil {
 		return false, err
 	}
-	err = self.post(self.metricsUrl(t), jsonb)
+	err = self.post(self.metricsUrl(md.Type), jsonb)
 	if err, ok := err.(*HawkularClientError); ok {
 		if err.Code != http.StatusConflict {
 			return false, err
@@ -67,7 +69,7 @@ func (self *Client) Create(t MetricType, md MetricDefinition) (bool, error) {
 
 }
 
-func (self *Client) QueryMetricDefinitions(t MetricType) ([]*MetricDefinition, error) {
+func (self *Client) MetricDefinitions(t MetricType) ([]*MetricDefinition, error) {
 	q := make(map[string]string)
 	q["type"] = t.shortForm()
 	url, err := self.paramUrl(self.metricsUrl(Generic), q)
@@ -86,10 +88,14 @@ func (self *Client) QueryMetricDefinitions(t MetricType) ([]*MetricDefinition, e
 		}
 	}
 
+	for _, m := range md {
+		m.Type = t
+	}
+
 	return md, nil
 }
 
-func (self *Client) QueryMetricTags(t MetricType, id string) (*map[string]string, error) {
+func (self *Client) MetricTags(t MetricType, id string) (*map[string]string, error) {
 	b, err := self.get(self.tagsUrl(t, id))
 	if err != nil {
 		return nil, err
@@ -125,7 +131,7 @@ func (self *Client) DeleteTags(t MetricType, id string, deleted map[string]strin
 }
 
 // Take input of single Metric instance. If Timestamp is not defined, use current time
-func (self *Client) PushSingleNumericMetric(id string, m Metric) error {
+func (self *Client) PushSingleGaugeMetric(id string, m Datapoint) error {
 
 	if _, ok := m.Value.(float64); !ok {
 		f, err := ConvertToFloat64(m.Value)
@@ -139,12 +145,16 @@ func (self *Client) PushSingleNumericMetric(id string, m Metric) error {
 		m.Timestamp = UnixMilli(time.Now())
 	}
 
-	mH := MetricHeader{Id: id, Data: []Metric{m}}
-	return self.WriteMultiple(Numeric, []MetricHeader{mH})
+	mH := MetricHeader{
+		Id:   id,
+		Data: []Datapoint{m},
+		Type: Gauge,
+	}
+	return self.Write([]MetricHeader{mH})
 }
 
-func (self *Client) QuerySingleNumericMetric(id string, options map[string]string) ([]*Metric, error) {
-	url, err := self.paramUrl(self.dataUrl(self.singleMetricsUrl(Numeric, id)), options)
+func (self *Client) SingleGaugeMetric(id string, options map[string]string) ([]*Datapoint, error) {
+	url, err := self.paramUrl(self.dataUrl(self.singleMetricsUrl(Gauge, id)), options)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +162,7 @@ func (self *Client) QuerySingleNumericMetric(id string, options map[string]strin
 	if err != nil {
 		return nil, err
 	}
-	metrics := []*Metric{}
+	metrics := []*Datapoint{}
 
 	if b != nil {
 		if err = json.Unmarshal(b, &metrics); err != nil {
@@ -164,11 +174,12 @@ func (self *Client) QuerySingleNumericMetric(id string, options map[string]strin
 
 }
 
-// func (self *Client) QueryNumericsWithTags(id string, tags map[string]string) ([]MetricDefinition, error) {
+// func (self *Client) QueryGaugesWithTags(id string, tags map[string]string) ([]MetricDefinition, error) {
 
-// }
-
-func (self *Client) WriteMultiple(metricType MetricType, metrics []MetricHeader) error {
+// Write using mixedmultimetrics
+// For now supports only single metricType per request
+func (self *Client) Write(metrics []MetricHeader) error {
+	metricType := metrics[0].Type // Temp solution
 	if err := metricType.validate(); err != nil {
 		return err
 	}
@@ -181,8 +192,6 @@ func (self *Client) WriteMultiple(metricType MetricType, metrics []MetricHeader)
 }
 
 // Helper functions
-
-// Need tag support here also..
 
 func (self *Client) get(url string) ([]byte, error) {
 	resp, err := self.client.Get(url)
@@ -216,10 +225,10 @@ func (self *Client) post(url string, json []byte) error {
 }
 
 func (self *Client) put(url string, json []byte) error {
-	return self.execHttp(url, "PUT", json)
+	return self.send(url, "PUT", json)
 }
 
-func (self *Client) execHttp(url string, method string, json []byte) error {
+func (self *Client) send(url string, method string, json []byte) error {
 	req, _ := http.NewRequest(method, url, bytes.NewReader(json))
 	req.Header.Add("Content-Type", "application/json")
 	resp, err := self.client.Do(req)
@@ -238,7 +247,7 @@ func (self *Client) execHttp(url string, method string, json []byte) error {
 }
 
 func (self *Client) del(url string) error {
-	return self.execHttp(url, "DELETE", nil)
+	return self.send(url, "DELETE", nil)
 }
 
 func (self *Client) parseErrorResponse(resp *http.Response) error {
@@ -266,7 +275,7 @@ func (self *Client) parseErrorResponse(resp *http.Response) error {
 
 func (self *Client) metricType(value interface{}) MetricType {
 	if _, ok := value.(float64); ok {
-		return Numeric
+		return Gauge
 	} else {
 		return Availability
 	}

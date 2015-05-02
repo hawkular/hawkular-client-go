@@ -8,7 +8,7 @@ import (
 type MetricType int
 
 const (
-	Numeric = iota
+	Gauge = iota
 	Availability
 	Counter
 	Generic
@@ -52,13 +52,14 @@ func (self MetricType) shortForm() string {
 // Hawkular-Metrics external structs
 
 type MetricHeader struct {
-	Id   string   `json:"id"`
-	Data []Metric `json:"data"`
+	Type MetricType  `json:"-"`
+	Id   string      `json:"id"`
+	Data []Datapoint `json:"data"`
 }
 
 // Value should be convertible to float64 for numeric values
 // Timestamp is milliseconds since epoch
-type Metric struct {
+type Datapoint struct {
 	Timestamp int64             `json:"timestamp"`
 	Value     interface{}       `json:"value"`
 	Tags      map[string]string `json:"tags,omitempty"`
@@ -69,6 +70,7 @@ type HawkularError struct {
 }
 
 type MetricDefinition struct {
+	Type          MetricType        `json:"-"`
 	Id            string            `json:"id"`
 	Tags          map[string]string `json:"tags,omitempty"`
 	RetentionTime int               `json:"dataRetention,omitempty"`
