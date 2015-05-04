@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+// TODO: Add statistics support? Error metrics (connection errors, request errors), request metrics:
+// totals, request rate? mean time, avg time, max, min, percentiles etc.. ? And clear metrics..
+// Stateful metrics? Kinda like Counters.Inc(..) ?
+
 // More detailed error
 
 type HawkularClientError struct {
@@ -24,23 +28,28 @@ func (self *HawkularClientError) Error() string {
 
 // Client creation and instance config
 
+const (
+	base_url string = "hawkular/metrics"
+)
+
 type Parameters struct {
 	Tenant string
-	Port   int
 	Host   string
-	Path   string
+	Path   string // Optional
 }
 
 type Client struct {
 	Tenant  string
 	Baseurl string
 	client  *http.Client
-
-	// Add statistics here? Mean time, avg time, max, min etc.. ?
 }
 
 func NewHawkularClient(p Parameters) (*Client, error) {
-	url := fmt.Sprintf("http://%s:%d/%s/%s", p.Host, p.Port, p.Path, p.Tenant)
+	if p.Path == "" {
+		p.Path = base_url
+	}
+
+	url := fmt.Sprintf("http://%s/%s", p.Host, p.Path) // TODO use *net.URL?
 	return &Client{
 		Baseurl: url,
 		Tenant:  p.Tenant,
@@ -69,7 +78,8 @@ func (self *Client) Create(md MetricDefinition) (bool, error) {
 
 }
 
-func (self *Client) MetricDefinitions(t MetricType) ([]*MetricDefinition, error) {
+// Fetch metric definitions for one metric type
+func (self *Client) Definitions(t MetricType) ([]*MetricDefinition, error) {
 	q := make(map[string]string)
 	q["type"] = t.shortForm()
 	url, err := self.paramUrl(self.metricsUrl(Generic), q)
@@ -95,7 +105,8 @@ func (self *Client) MetricDefinitions(t MetricType) ([]*MetricDefinition, error)
 	return md, nil
 }
 
-func (self *Client) MetricTags(t MetricType, id string) (*map[string]string, error) {
+// Fetch metric definition tags
+func (self *Client) Tags(t MetricType, id string) (*map[string]string, error) {
 	b, err := self.get(self.tagsUrl(t, id))
 	if err != nil {
 		return nil, err
@@ -112,6 +123,8 @@ func (self *Client) MetricTags(t MetricType, id string) (*map[string]string, err
 	return &md.Tags, nil
 }
 
+// Replace metric definition tags
+// TODO: Should this be "ReplaceTags" etc?
 func (self *Client) UpdateTags(t MetricType, id string, tags map[string]string) error {
 	b, err := json.Marshal(tags)
 	if err != nil {
@@ -120,6 +133,7 @@ func (self *Client) UpdateTags(t MetricType, id string, tags map[string]string) 
 	return self.put(self.tagsUrl(t, id), b)
 }
 
+// Delete given tags from the definition
 func (self *Client) DeleteTags(t MetricType, id string, deleted map[string]string) error {
 	tags := make([]string, 0, len(deleted))
 	for k, v := range deleted {
@@ -153,6 +167,8 @@ func (self *Client) PushSingleGaugeMetric(id string, m Datapoint) error {
 	return self.Write([]MetricHeader{mH})
 }
 
+// Read single Gauge metric's datapoints.
+// TODO: Remove and replace with better Read properties? Perhaps with iterators?
 func (self *Client) SingleGaugeMetric(id string, options map[string]string) ([]*Datapoint, error) {
 	url, err := self.paramUrl(self.dataUrl(self.singleMetricsUrl(Gauge, id)), options)
 	if err != nil {
@@ -191,10 +207,33 @@ func (self *Client) Write(metrics []MetricHeader) error {
 	return self.post(self.dataUrl(self.metricsUrl(metricType)), jsonb)
 }
 
-// Helper functions
+// HTTP Helper functions
 
 func (self *Client) get(url string) ([]byte, error) {
-	resp, err := self.client.Get(url)
+	return self.send(url, "GET", nil)
+}
+
+func (self *Client) post(url string, json []byte) error {
+	_, err := self.send(url, "POST", json)
+	return err
+}
+
+func (self *Client) put(url string, json []byte) error {
+	_, err := self.send(url, "PUT", json)
+	return err
+}
+
+func (self *Client) del(url string) error {
+	_, err := self.send(url, "DELETE", nil)
+	return err
+}
+
+func (self *Client) send(url string, method string, json []byte) ([]byte, error) {
+	req, _ := http.NewRequest(method, url, bytes.NewBuffer(json))
+	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("tenantId", self.Tenant)
+	resp, err := self.client.Do(req)
+
 	if err != nil {
 		return nil, err
 	}
@@ -209,45 +248,6 @@ func (self *Client) get(url string) ([]byte, error) {
 	} else {
 		return nil, nil // Nothing to answer..
 	}
-}
-
-func (self *Client) post(url string, json []byte) error {
-	if resp, err := self.client.Post(url, "application/json", bytes.NewBuffer(json)); err == nil {
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			return self.parseErrorResponse(resp)
-		}
-		return nil
-	} else {
-		return err
-	}
-}
-
-func (self *Client) put(url string, json []byte) error {
-	return self.send(url, "PUT", json)
-}
-
-func (self *Client) send(url string, method string, json []byte) error {
-	req, _ := http.NewRequest(method, url, bytes.NewReader(json))
-	req.Header.Add("Content-Type", "application/json")
-	resp, err := self.client.Do(req)
-
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return self.parseErrorResponse(resp)
-	}
-
-	return nil
-}
-
-func (self *Client) del(url string) error {
-	return self.send(url, "DELETE", nil)
 }
 
 func (self *Client) parseErrorResponse(resp *http.Response) error {
@@ -270,14 +270,6 @@ func (self *Client) parseErrorResponse(resp *http.Response) error {
 
 	return &HawkularClientError{Code: resp.StatusCode,
 		msg: details.ErrorMsg,
-	}
-}
-
-func (self *Client) metricType(value interface{}) MetricType {
-	if _, ok := value.(float64); ok {
-		return Gauge
-	} else {
-		return Availability
 	}
 }
 

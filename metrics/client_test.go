@@ -14,8 +14,9 @@ func integrationClient() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := Parameters{Tenant: t, Port: 8080, Host: "localhost", Path: "hawkular/metrics"}
-	// p := Parameters{Tenant: t, Port: 18080, Host: "209.132.178.218"}
+	// p := Parameters{Tenant: t, Host: "localhost:8080", Path: "hawkular/metrics"}
+	p := Parameters{Tenant: t, Host: "localhost:8080"}
+	// p := Parameters{Tenant: t, Host: "209.132.178.218:18080"}
 	return NewHawkularClient(p)
 }
 
@@ -61,7 +62,7 @@ func TestCreate(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Fetch all the previously created metrics and test equalities..
-	mdq, err := c.MetricDefinitions(Gauge)
+	mdq, err := c.Definitions(Gauge)
 	assert.Nil(t, err)
 	assert.Equal(t, 2, len(mdq), "Size of the returned gauge metrics does not match 2")
 
@@ -73,7 +74,7 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, md.Id, mdm[id].Id)
 	assert.True(t, reflect.DeepEqual(tags, mdm["test.metric.create.numeric.2"].Tags))
 
-	mda, err := c.MetricDefinitions(Availability)
+	mda, err := c.Definitions(Availability)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(mda))
 	assert.Equal(t, 12, mda[0].RetentionTime)
@@ -126,7 +127,7 @@ func TestTagsModification(t *testing.T) {
 		assert.Nil(t, err)
 
 		// Fetch metric tags - check for equality
-		md_tags, err := c.MetricTags(Gauge, id)
+		md_tags, err := c.Tags(Gauge, id)
 		assert.Nil(t, err)
 
 		assert.True(t, reflect.DeepEqual(tags, *md_tags), "Tags did not match the updated ones")
@@ -136,7 +137,7 @@ func TestTagsModification(t *testing.T) {
 		assert.Nil(t, err)
 
 		// Fetch metric - check that tags were deleted
-		md_tags, err = c.MetricTags(Gauge, id)
+		md_tags, err = c.Tags(Gauge, id)
 		assert.Nil(t, err)
 		assert.False(t, len(*md_tags) > 0, "Received deleted tags")
 	}
