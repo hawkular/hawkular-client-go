@@ -38,8 +38,13 @@ func TestCreate(t *testing.T) {
 	id := "test.metric.create.numeric.1"
 	md := MetricDefinition{Id: id, Type: Gauge}
 	ok, err := c.Create(md)
-	assert.True(t, ok, "MetricDefinition should have been created")
 	assert.Nil(t, err)
+	assert.True(t, ok, "MetricDefinition should have been created")
+
+	// Commented out, see HWKMETRICS-110
+	// mdd, err := c.Definition(Gauge, id)
+	// assert.Nil(t, err)
+	// assert.Equal(t, md.Id, mdd.Id)
 
 	// Try to recreate the same..
 	ok, err = c.Create(md)

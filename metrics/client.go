@@ -105,6 +105,25 @@ func (self *Client) Definitions(t MetricType) ([]*MetricDefinition, error) {
 	return md, nil
 }
 
+// Return a single definition
+func (self *Client) Definition(t MetricType, id string) (*MetricDefinition, error) {
+	url := self.singleMetricsUrl(t, id)
+
+	b, err := self.get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	md := MetricDefinition{}
+	if b != nil {
+		if err = json.Unmarshal(b, &md); err != nil {
+			return nil, err
+		}
+	}
+	md.Type = t
+	return &md, nil
+}
+
 // Fetch metric definition tags
 func (self *Client) Tags(t MetricType, id string) (*map[string]string, error) {
 	b, err := self.get(self.tagsUrl(t, id))
@@ -112,15 +131,15 @@ func (self *Client) Tags(t MetricType, id string) (*map[string]string, error) {
 		return nil, err
 	}
 
-	md := MetricDefinition{}
+	tags := make(map[string]string)
 	// Repetive code.. clean up with other queries to somewhere..
 	if b != nil {
-		if err = json.Unmarshal(b, &md); err != nil {
+		if err = json.Unmarshal(b, &tags); err != nil {
 			return nil, err
 		}
 	}
 
-	return &md.Tags, nil
+	return &tags, nil
 }
 
 // Replace metric definition tags
@@ -195,16 +214,19 @@ func (self *Client) SingleGaugeMetric(id string, options map[string]string) ([]*
 // Write using mixedmultimetrics
 // For now supports only single metricType per request
 func (self *Client) Write(metrics []MetricHeader) error {
-	metricType := metrics[0].Type // Temp solution
-	if err := metricType.validate(); err != nil {
-		return err
-	}
+	if len(metrics) > 0 {
+		metricType := metrics[0].Type // Temp solution
+		if err := metricType.validate(); err != nil {
+			return err
+		}
 
-	jsonb, err := json.Marshal(&metrics)
-	if err != nil {
-		return err
+		jsonb, err := json.Marshal(&metrics)
+		if err != nil {
+			return err
+		}
+		return self.post(self.dataUrl(self.metricsUrl(metricType)), jsonb)
 	}
-	return self.post(self.dataUrl(self.metricsUrl(metricType)), jsonb)
+	return nil
 }
 
 // HTTP Helper functions
@@ -231,7 +253,7 @@ func (self *Client) del(url string) error {
 func (self *Client) send(url string, method string, json []byte) ([]byte, error) {
 	req, _ := http.NewRequest(method, url, bytes.NewBuffer(json))
 	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("tenantId", self.Tenant)
+	req.Header.Add("Hawkular-Tenant", self.Tenant)
 	resp, err := self.client.Do(req)
 
 	if err != nil {
