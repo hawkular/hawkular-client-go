@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -39,9 +40,9 @@ type Parameters struct {
 }
 
 type Client struct {
-	Tenant  string
-	Baseurl string
-	client  *http.Client
+	Tenant string
+	url    *url.URL
+	client *http.Client
 }
 
 func NewHawkularClient(p Parameters) (*Client, error) {
@@ -49,11 +50,16 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 		p.Path = base_url
 	}
 
-	url := fmt.Sprintf("http://%s/%s", p.Host, p.Path) // TODO use *net.URL?
+	u := &url.URL{
+		Host:   p.Host,
+		Path:   p.Path,
+		Scheme: "http",
+		Opaque: fmt.Sprintf("//%s/%s", p.Host, p.Path),
+	}
 	return &Client{
-		Baseurl: url,
-		Tenant:  p.Tenant,
-		client:  &http.Client{},
+		url:    u,
+		Tenant: p.Tenant,
+		client: &http.Client{},
 	}, nil
 }
 
@@ -67,12 +73,15 @@ func (self *Client) Create(md MetricDefinition) (bool, error) {
 		return false, err
 	}
 	err = self.post(self.metricsUrl(md.Type), jsonb)
-	if err, ok := err.(*HawkularClientError); ok {
-		if err.Code != http.StatusConflict {
-			return false, err
-		} else {
-			return false, nil
+	if err != nil {
+		if err, ok := err.(*HawkularClientError); ok {
+			if err.Code != http.StatusConflict {
+				return false, err
+			} else {
+				return false, nil
+			}
 		}
+		return false, err
 	}
 	return true, nil
 
@@ -126,7 +135,8 @@ func (self *Client) Definition(t MetricType, id string) (*MetricDefinition, erro
 
 // Fetch metric definition tags
 func (self *Client) Tags(t MetricType, id string) (*map[string]string, error) {
-	b, err := self.get(self.tagsUrl(t, id))
+	id_url := self.cleanId(id)
+	b, err := self.get(self.tagsUrl(t, id_url))
 	if err != nil {
 		return nil, err
 	}
@@ -145,26 +155,30 @@ func (self *Client) Tags(t MetricType, id string) (*map[string]string, error) {
 // Replace metric definition tags
 // TODO: Should this be "ReplaceTags" etc?
 func (self *Client) UpdateTags(t MetricType, id string, tags map[string]string) error {
+	id_url := self.cleanId(id)
 	b, err := json.Marshal(tags)
 	if err != nil {
 		return err
 	}
-	return self.put(self.tagsUrl(t, id), b)
+	return self.put(self.tagsUrl(t, id_url), b)
 }
 
 // Delete given tags from the definition
-func (self *Client) DeleteTags(t MetricType, id string, deleted map[string]string) error {
+func (self *Client) DeleteTags(t MetricType, id_str string, deleted map[string]string) error {
+	id := self.cleanId(id_str)
 	tags := make([]string, 0, len(deleted))
 	for k, v := range deleted {
 		tags = append(tags, fmt.Sprintf("%s:%s", k, v))
 	}
 	j := strings.Join(tags, ",")
-	url := fmt.Sprintf("%s/%s", self.tagsUrl(t, id), j)
-	return self.del(url)
+	u := self.tagsUrl(t, id)
+	self.addToUrl(u, j)
+	return self.del(u)
 }
 
 // Take input of single Metric instance. If Timestamp is not defined, use current time
 func (self *Client) PushSingleGaugeMetric(id string, m Datapoint) error {
+	// id = self.cleanId(id)
 
 	if _, ok := m.Value.(float64); !ok {
 		f, err := ConvertToFloat64(m.Value)
@@ -189,7 +203,9 @@ func (self *Client) PushSingleGaugeMetric(id string, m Datapoint) error {
 // Read single Gauge metric's datapoints.
 // TODO: Remove and replace with better Read properties? Perhaps with iterators?
 func (self *Client) SingleGaugeMetric(id string, options map[string]string) ([]*Datapoint, error) {
+	id = self.cleanId(id)
 	url, err := self.paramUrl(self.dataUrl(self.singleMetricsUrl(Gauge, id)), options)
+
 	if err != nil {
 		return nil, err
 	}
@@ -231,27 +247,64 @@ func (self *Client) Write(metrics []MetricHeader) error {
 
 // HTTP Helper functions
 
-func (self *Client) get(url string) ([]byte, error) {
+func (self *Client) get(url *url.URL) ([]byte, error) {
 	return self.send(url, "GET", nil)
 }
 
-func (self *Client) post(url string, json []byte) error {
+func (self *Client) post(url *url.URL, json []byte) error {
 	_, err := self.send(url, "POST", json)
 	return err
 }
 
-func (self *Client) put(url string, json []byte) error {
+func (self *Client) put(url *url.URL, json []byte) error {
 	_, err := self.send(url, "PUT", json)
 	return err
 }
 
-func (self *Client) del(url string) error {
+func (self *Client) del(url *url.URL) error {
 	_, err := self.send(url, "DELETE", nil)
 	return err
 }
 
-func (self *Client) send(url string, method string, json []byte) ([]byte, error) {
-	req, _ := http.NewRequest(method, url, bytes.NewBuffer(json))
+func (self *Client) cleanId(id string) string {
+	return url.QueryEscape(id)
+}
+
+// Override default http.NewRequest to avoid url.Parse which has a bug (removes valid %2F)
+func (self *Client) newRequest(url *url.URL, method string, body io.Reader) (*http.Request, error) {
+	rc, ok := body.(io.ReadCloser)
+	if !ok && body != nil {
+		rc = ioutil.NopCloser(body)
+	}
+
+	req := &http.Request{
+		Method:     method,
+		URL:        url,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     make(http.Header),
+		Body:       rc,
+		Host:       url.Host,
+	}
+
+	if body != nil {
+		switch v := body.(type) {
+		case *bytes.Buffer:
+			req.ContentLength = int64(v.Len())
+		case *bytes.Reader:
+			req.ContentLength = int64(v.Len())
+		case *strings.Reader:
+			req.ContentLength = int64(v.Len())
+		}
+	}
+	return req, nil
+}
+
+func (self *Client) send(url *url.URL, method string, json []byte) ([]byte, error) {
+	// Have to replicate http.NewRequest here to avoid calling of url.Parse,
+	// which has a bug when it comes to encoded url
+	req, _ := self.newRequest(url, method, bytes.NewBuffer(json))
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Hawkular-Tenant", self.Tenant)
 	resp, err := self.client.Do(req)
@@ -277,7 +330,7 @@ func (self *Client) parseErrorResponse(resp *http.Response) error {
 	reply, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return &HawkularClientError{Code: resp.StatusCode,
-			msg: fmt.Sprintf("Reply could not be parsed: %s", err.Error()),
+			msg: fmt.Sprintf("Reply could not be read: %s", err.Error()),
 		}
 	}
 
@@ -297,31 +350,40 @@ func (self *Client) parseErrorResponse(resp *http.Response) error {
 
 // URL functions (...)
 
-func (self *Client) metricsUrl(metricType MetricType) string {
-	return fmt.Sprintf("%s/%s", self.Baseurl, metricType.String())
+func (self *Client) metricsUrl(metricType MetricType) *url.URL {
+	mu := *self.url
+	self.addToUrl(&mu, metricType.String())
+	return &mu
 }
 
-func (self *Client) singleMetricsUrl(metricType MetricType, id string) string {
-	return fmt.Sprintf("%s/%s", self.metricsUrl(metricType), id)
+func (self *Client) singleMetricsUrl(metricType MetricType, id string) *url.URL {
+	mu := self.metricsUrl(metricType)
+	self.addToUrl(mu, id)
+	return mu
 }
 
-func (self *Client) tagsUrl(mt MetricType, id string) string {
-	return fmt.Sprintf("%s/tags", self.singleMetricsUrl(mt, id))
+func (self *Client) tagsUrl(mt MetricType, id string) *url.URL {
+	mu := self.singleMetricsUrl(mt, id)
+	self.addToUrl(mu, "tags")
+	return mu
 }
 
-func (self *Client) dataUrl(url string) string {
-	return fmt.Sprintf("%s/data", url)
+func (self *Client) dataUrl(url *url.URL) *url.URL {
+	self.addToUrl(url, "data")
+	return url
 }
 
-func (self *Client) paramUrl(starturl string, options map[string]string) (string, error) {
-	u, err := url.Parse(starturl)
-	if err != nil {
-		return "", err
-	}
+func (self *Client) addToUrl(u *url.URL, s string) *url.URL {
+	u.Opaque = fmt.Sprintf("%s/%s", u.Opaque, s)
+	return u
+}
+
+func (self *Client) paramUrl(u *url.URL, options map[string]string) (*url.URL, error) {
 	q := u.Query()
 	for k, v := range options {
 		q.Set(k, v)
 	}
+
 	u.RawQuery = q.Encode()
-	return u.String(), nil
+	return u, nil
 }

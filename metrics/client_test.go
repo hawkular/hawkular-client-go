@@ -61,7 +61,7 @@ func TestCreate(t *testing.T) {
 	assert.True(t, ok, "MetricDefinition should have been created")
 	assert.Nil(t, err)
 
-	md_reten := MetricDefinition{Id: "test.metric.create.availability.1", RetentionTime: 12, Type: Availability}
+	md_reten := MetricDefinition{Id: "test/metric/create/availability/1", RetentionTime: 12, Type: Availability}
 	ok, err = c.Create(md_reten)
 	assert.True(t, ok, "MetricDefinition should have been created")
 	assert.Nil(t, err)
@@ -82,6 +82,7 @@ func TestCreate(t *testing.T) {
 	mda, err := c.Definitions(Availability)
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(mda))
+	assert.Equal(t, "test/metric/create/availability/1", mda[0].Id)
 	assert.Equal(t, 12, mda[0].RetentionTime)
 
 	if mda[0].Type != Availability {
@@ -95,7 +96,7 @@ func TestAddGaugeSingle(t *testing.T) {
 
 	// With timestamp
 	m := Datapoint{Timestamp: time.Now().UnixNano() / 1e6, Value: 1.34}
-	err = c.PushSingleGaugeMetric("test.numeric.single.1", m)
+	err = c.PushSingleGaugeMetric("test/numeric/single/1", m)
 	assert.Nil(t, err)
 
 	// Without preset timestamp
@@ -105,9 +106,9 @@ func TestAddGaugeSingle(t *testing.T) {
 
 	//  for both metrics and check that they're correctly filled
 	params := make(map[string]string)
-	metrics, err := c.SingleGaugeMetric("test.numeric.single.1", params)
+	metrics, err := c.SingleGaugeMetric("test/numeric/single/1", params)
 	assert.Nil(t, err)
-	assert.Equal(t, 1, len(metrics), "Received more datapoints than written")
+	assert.Equal(t, 1, len(metrics), "Received different amount of datapoints than sent")
 
 	metrics, err = c.SingleGaugeMetric("test.numeric.single.2", params)
 	assert.Nil(t, err)
@@ -117,12 +118,12 @@ func TestAddGaugeSingle(t *testing.T) {
 
 func TestTagsModification(t *testing.T) {
 	if c, err := integrationClient(); err == nil {
-		id := "test.tags.modify.1"
+		id := "test/tags/modify/1"
 		// Create metric without tags
 		md := MetricDefinition{Id: id, Type: Gauge}
 		ok, err := c.Create(md)
-		assert.True(t, ok, "MetricDefinition should have been created")
 		assert.Nil(t, err)
+		assert.True(t, ok, "MetricDefinition should have been created")
 
 		// Add tags
 		tags := make(map[string]string)
