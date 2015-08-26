@@ -15,7 +15,8 @@ func integrationClient() (*Client, error) {
 		return nil, err
 	}
 	// p := Parameters{Tenant: t, Host: "localhost:8080", Path: "hawkular/metrics"}
-	p := Parameters{Tenant: t, Host: "localhost:8080"}
+	// p := Parameters{Tenant: t, Host: "localhost:8180"}
+	p := Parameters{Tenant: t, Host: "192.168.1.105:8080"}
 	// p := Parameters{Tenant: t, Host: "209.132.178.218:18080"}
 	return NewHawkularClient(p)
 }
@@ -31,6 +32,31 @@ func randomString() (string, error) {
 func createError(err error) {
 }
 
+func TestTenantModifier(t *testing.T) {
+	c, err := integrationClient()
+	assert.Nil(t, err)
+
+	ot, _ := randomString()
+
+	// Create for another tenant
+	id := "test.metric.create.numeric.tenant.1"
+	md := MetricDefinition{Id: id, Type: Gauge}
+
+	ok, err := c.Create(md, Tenant(ot))
+	assert.Nil(t, err)
+	assert.True(t, ok, "MetricDefinition should have been created")
+
+	// Try to fetch from default tenant - should fail
+	mds, err := c.Definitions(Filters(TypeFilter(Gauge)))
+	assert.Nil(t, err)
+	assert.Nil(t, mds)
+
+	// Try to fetch from the given tenant - should succeed
+	mds, err = c.Definitions(Filters(TypeFilter(Gauge)), Tenant(ot))
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(mds))
+}
+
 func TestCreate(t *testing.T) {
 	c, err := integrationClient()
 	assert.Nil(t, err)
@@ -41,7 +67,9 @@ func TestCreate(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
 
-	// Commented out, see HWKMETRICS-110
+	// Following would be nice:
+	// mdd, err := c.Definitions(Filters(Type(Gauge), Id(id)))
+
 	// mdd, err := c.Definition(Gauge, id)
 	// assert.Nil(t, err)
 	// assert.Equal(t, md.Id, mdd.Id)
@@ -63,11 +91,11 @@ func TestCreate(t *testing.T) {
 
 	md_reten := MetricDefinition{Id: "test/metric/create/availability/1", RetentionTime: 12, Type: Availability}
 	ok, err = c.Create(md_reten)
-	assert.True(t, ok, "MetricDefinition should have been created")
 	assert.Nil(t, err)
+	assert.True(t, ok, "MetricDefinition should have been created")
 
 	// Fetch all the previously created metrics and test equalities..
-	mdq, err := c.Definitions(Gauge)
+	mdq, err := c.Definitions(Filters(TypeFilter(Gauge)))
 	assert.Nil(t, err)
 	assert.Equal(t, 2, len(mdq), "Size of the returned gauge metrics does not match 2")
 
@@ -79,14 +107,14 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, md.Id, mdm[id].Id)
 	assert.True(t, reflect.DeepEqual(tags, mdm["test.metric.create.numeric.2"].Tags))
 
-	mda, err := c.Definitions(Availability)
+	mda, err := c.Definitions(Filters(TypeFilter(Availability)))
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(mda))
 	assert.Equal(t, "test/metric/create/availability/1", mda[0].Id)
 	assert.Equal(t, 12, mda[0].RetentionTime)
 
 	if mda[0].Type != Availability {
-		t.FailNow()
+		assert.FailNow(t, "Type did not match Availability", int(mda[0].Type))
 	}
 }
 
@@ -117,61 +145,61 @@ func TestAddGaugeSingle(t *testing.T) {
 }
 
 func TestTagsModification(t *testing.T) {
-	if c, err := integrationClient(); err == nil {
-		id := "test/tags/modify/1"
-		// Create metric without tags
-		md := MetricDefinition{Id: id, Type: Gauge}
-		ok, err := c.Create(md)
-		assert.Nil(t, err)
-		assert.True(t, ok, "MetricDefinition should have been created")
+	c, err := integrationClient()
+	assert.Nil(t, err)
+	id := "test/tags/modify/1"
+	// Create metric without tags
+	md := MetricDefinition{Id: id, Type: Gauge}
+	ok, err := c.Create(md)
+	assert.Nil(t, err)
+	assert.True(t, ok, "MetricDefinition should have been created")
 
-		// Add tags
-		tags := make(map[string]string)
-		tags["ab"] = "ac"
-		tags["host"] = "test"
-		err = c.UpdateTags(Gauge, id, tags)
-		assert.Nil(t, err)
+	// Add tags
+	tags := make(map[string]string)
+	tags["ab"] = "ac"
+	tags["host"] = "test"
+	err = c.UpdateTags(Gauge, id, tags)
+	assert.Nil(t, err)
 
-		// Fetch metric tags - check for equality
-		md_tags, err := c.Tags(Gauge, id)
-		assert.Nil(t, err)
+	// Fetch metric tags - check for equality
+	md_tags, err := c.Tags(Gauge, id)
+	assert.Nil(t, err)
 
-		assert.True(t, reflect.DeepEqual(tags, *md_tags), "Tags did not match the updated ones")
+	assert.True(t, reflect.DeepEqual(tags, *md_tags), "Tags did not match the updated ones")
 
-		// Delete some metric tags
-		err = c.DeleteTags(Gauge, id, tags)
-		assert.Nil(t, err)
+	// Delete some metric tags
+	err = c.DeleteTags(Gauge, id, tags)
+	assert.Nil(t, err)
 
-		// Fetch metric - check that tags were deleted
-		md_tags, err = c.Tags(Gauge, id)
-		assert.Nil(t, err)
-		assert.False(t, len(*md_tags) > 0, "Received deleted tags")
-	}
+	// Fetch metric - check that tags were deleted
+	md_tags, err = c.Tags(Gauge, id)
+	assert.Nil(t, err)
+	assert.False(t, len(*md_tags) > 0, "Received deleted tags")
 }
 
 func TestTags(t *testing.T) {
-	if c, err := integrationClient(); err == nil {
-		tags := make(map[string]string)
-		tTag, err := randomString()
-		tags[tTag] = "testValue"
+	c, err := integrationClient()
+	assert.Nil(t, err)
+	tags := make(map[string]string)
+	tTag, err := randomString()
+	tags[tTag] = "testValue"
 
-		// Write with tags
-		m := Datapoint{Value: float64(0.01), Tags: tags}
-		err = c.PushSingleGaugeMetric("test.tags.numeric.1", m)
-		assert.NoError(t, err)
+	// Write with tags
+	m := Datapoint{Value: float64(0.01), Tags: tags}
+	err = c.PushSingleGaugeMetric("test.tags.numeric.1", m)
+	assert.NoError(t, err)
 
-		// Search metrics with tag
+	// Search metrics with tag
 
-		// 		    @GET
-		// @Path("/{tenantId}/numeric")
-		// @ApiOperation(value = "Find numeric metrics data by their tags.", response = Map.cla@ApiParam(value = "Tag list", required = true) @Param("tags") Tags tags
+	// 		    @GET
+	// @Path("/{tenantId}/numeric")
+	// @ApiOperation(value = "Find numeric metrics data by their tags.", response = Map.cla@ApiParam(value = "Tag list", required = true) @Param("tags") Tags tags
 
-		// Get metric definition tags
-		// @Path("/{tenantId}/metrics/numeric/{id}/tags")
-		// @ApiOperation(value = "Retrieve tags associated with the metric definition.", response = Metric.class)
+	// Get metric definition tags
+	// @Path("/{tenantId}/metrics/numeric/{id}/tags")
+	// @ApiOperation(value = "Retrieve tags associated with the metric definition.", response = Metric.class)
 
-		// Fetch a metric with values and check we still have tags
-	}
+	// Fetch a metric with values and check we still have tags
 }
 
 func TestAddMixedMulti(t *testing.T) {
@@ -224,4 +252,32 @@ func TestCheckErrors(t *testing.T) {
 	assert.NotNil(t, err, "Invalid non-float value should not be accepted")
 	_, err = c.SingleGaugeMetric("test.not.existing", make(map[string]string))
 	assert.Nil(t, err, "Querying empty metric should not generate an error")
+}
+
+func TestTenantFetching(t *testing.T) {
+	c, err := integrationClient()
+	assert.Nil(t, err)
+
+	// Test struct that does have Tenant defined
+	mh := MetricHeader{
+		Id:   "test.fetching.tenant.1",
+		Type: Counter,
+		Data: []Datapoint{},
+	}
+	assert.Equal(t, c.Tenant, c.tenant(mh))
+
+	other := "my.other.tenant"
+	mh.Tenant = other
+	assert.Equal(t, other, c.tenant(mh))
+
+	// Check also pointer access
+	assert.Equal(t, other, c.tenant(&mh))
+
+	// Test struct that doesn't have Tenant defined, should return self.Tenant
+	d := &Datapoint{
+		Timestamp: time.Now().Unix(),
+		Value:     float64(1.45),
+	}
+	assert.Equal(t, c.Tenant, c.tenant(d))
+
 }
