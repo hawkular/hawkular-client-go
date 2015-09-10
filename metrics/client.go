@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -254,7 +255,6 @@ func (self *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 	if len(metrics) > 0 {
 		glog.Infof("Write() received %d metrics\n", len(metrics))
 		mHs := make(map[MetricType][]MetricHeader)
-
 		for _, m := range metrics {
 			if _, found := mHs[m.Type]; !found {
 				mHs[m.Type] = make([]MetricHeader, 0, 1)
@@ -262,21 +262,43 @@ func (self *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 			mHs[m.Type] = append(mHs[m.Type], m)
 		}
 
-		for k, v := range mHs {
-			glog.Infof("Sending %s type with %d metrics\n", k.String(), len(v))
-			// Should be sorted and splitted by type & tenant..
-			o = prepend(o, self.Url("POST", TypeEndpoint(k), DataEndpoint()), Data(v))
+		wg := &sync.WaitGroup{}
+		errorsChan := make(chan error, len(mHs))
 
-			r, err := self.Send(o...)
-			if err != nil {
+		for k, v := range mHs {
+			wg.Add(1)
+			go func(k MetricType, v []MetricHeader) {
+				glog.V(2).Infof("Sending %s type with %d metrics\n", k.String(), len(v))
+				// Should be sorted and splitted by type & tenant..
+				on := o
+				on = prepend(o, self.Url("POST", TypeEndpoint(k), DataEndpoint()), Data(v))
+
+				r, err := self.Send(on...)
+				if err != nil {
+					errorsChan <- err
+					return
+				}
+
+				glog.V(2).Infof("Hawkular-Metrics returned: %d\n", r.StatusCode)
+				defer func() {
+					r.Body.Close()
+					wg.Done()
+				}()
+
+				if r.StatusCode > 399 {
+					errorsChan <- self.parseErrorResponse(r)
+				}
+			}(k, v)
+		}
+		wg.Wait()
+		select {
+		case err, ok := <-errorsChan:
+			if ok {
 				return err
 			}
-
-			defer r.Body.Close()
-
-			if r.StatusCode > 399 {
-				return self.parseErrorResponse(r)
-			}
+			// If channel is closed, we're done
+		default:
+			// Nothing to do
 		}
 
 	}

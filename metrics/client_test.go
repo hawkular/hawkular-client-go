@@ -230,6 +230,8 @@ func TestAddMixedMulti(t *testing.T) {
 		err = c.Write(h)
 		assert.NoError(t, err)
 
+		time.Sleep(1000 * time.Millisecond)
+
 		var checkDatapoints = func(id string, expected int) []*Datapoint {
 			metric, err := c.SingleGaugeMetric(id, make(map[string]string))
 			assert.NoError(t, err)
