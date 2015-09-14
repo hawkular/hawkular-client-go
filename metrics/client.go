@@ -4,12 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/glog"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"net/url"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -32,7 +30,8 @@ func (self *HawkularClientError) Error() string {
 // Client creation and instance config
 
 const (
-	base_url string = "hawkular/metrics"
+	base_url string        = "hawkular/metrics"
+	timeout  time.Duration = time.Duration(30 * time.Second)
 )
 
 type Parameters struct {
@@ -121,11 +120,7 @@ func TypeFilter(t MetricType) Filter {
 }
 
 func TagsFilter(t map[string]string) Filter {
-	tags := make([]string, 0, len(t))
-	for k, v := range t {
-		tags = append(tags, fmt.Sprintf("%s:%s", k, v))
-	}
-	j := strings.Join(tags, ",") // Add this
+	j := tagsEncoder(t)
 	return Param("tags", j)
 }
 
@@ -160,7 +155,6 @@ func (self *Client) Send(o ...Modifier) (*http.Response, error) {
 			return nil, err
 		}
 	}
-	// fmt.Printf("Complete %s URL: %s\n", self.Tenant, r.URL)
 
 	return self.client.Do(r)
 }
@@ -250,10 +244,57 @@ func (self *Client) UpdateTags(t MetricType, id string, tags map[string]string, 
 	return nil
 }
 
+// Delete given tags from the definition
+func (self *Client) DeleteTags(t MetricType, id string, tags map[string]string, o ...Modifier) error {
+	o = prepend(o, self.Url("DELETE", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint(), TagsEndpoint(tags)))
+
+	r, err := self.Send(o...)
+	if err != nil {
+		return err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode > 399 {
+		return self.parseErrorResponse(r)
+	}
+
+	return nil
+}
+
+// Fetch metric definition tags
+func (self *Client) Tags(t MetricType, id string, o ...Modifier) (map[string]string, error) {
+	o = prepend(o, self.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint()))
+
+	r, err := self.Send(o...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode == http.StatusOK {
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		tags := make(map[string]string)
+		if b != nil {
+			if err = json.Unmarshal(b, &tags); err != nil {
+				return nil, err
+			}
+		}
+		return tags, nil
+	} else if r.StatusCode > 399 {
+		return nil, self.parseErrorResponse(r)
+	}
+
+	return nil, nil
+}
+
 // Write datapoints to the server
 func (self *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 	if len(metrics) > 0 {
-		glog.Infof("Write() received %d metrics\n", len(metrics))
 		mHs := make(map[MetricType][]MetricHeader)
 		for _, m := range metrics {
 			if _, found := mHs[m.Type]; !found {
@@ -268,10 +309,11 @@ func (self *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 		for k, v := range mHs {
 			wg.Add(1)
 			go func(k MetricType, v []MetricHeader) {
-				glog.V(2).Infof("Sending %s type with %d metrics\n", k.String(), len(v))
+				defer wg.Done()
+
 				// Should be sorted and splitted by type & tenant..
 				on := o
-				on = prepend(o, self.Url("POST", TypeEndpoint(k), DataEndpoint()), Data(v))
+				on = prepend(on, self.Url("POST", TypeEndpoint(k), DataEndpoint()), Data(v))
 
 				r, err := self.Send(on...)
 				if err != nil {
@@ -279,11 +321,7 @@ func (self *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 					return
 				}
 
-				glog.V(2).Infof("Hawkular-Metrics returned: %d\n", r.StatusCode)
-				defer func() {
-					r.Body.Close()
-					wg.Done()
-				}()
+				defer r.Body.Close()
 
 				if r.StatusCode > 399 {
 					errorsChan <- self.parseErrorResponse(r)
@@ -321,7 +359,9 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 	return &Client{
 		url:    u,
 		Tenant: p.Tenant,
-		client: &http.Client{},
+		client: &http.Client{
+			Timeout: timeout,
+		},
 	}, nil
 }
 
@@ -347,73 +387,6 @@ func (self *Client) Definition(t MetricType, id string) (*MetricDefinition, erro
 	return &md, nil
 }
 
-// Tags methods should return tenant also
-
-// Fetch metric definition tags
-func (self *Client) Tags(t MetricType, id string) (*map[string]string, error) {
-	id_url := cleanId(id)
-	b, err := self.process(self.tagsUrl(t, id_url), "GET", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	tags := make(map[string]string)
-	// Repetive code.. clean up with other queries to somewhere..
-	if b != nil {
-		if err = json.Unmarshal(b, &tags); err != nil {
-			return nil, err
-		}
-	}
-
-	return &tags, nil
-}
-
-// Replace metric definition tags
-// TODO: Should this be "ReplaceTags" etc?
-// func (self *Client) UpdateTags(t MetricType, id string, tags map[string]string) error {
-// 	id_url := self.cleanId(id)
-// 	_, err := self.process(self.tagsUrl(t, id_url), "PUT", tags)
-// 	return err
-// }
-
-// Delete given tags from the definition
-func (self *Client) DeleteTags(t MetricType, id_str string, deleted map[string]string) error {
-	id := cleanId(id_str)
-	tags := make([]string, 0, len(deleted))
-	for k, v := range deleted {
-		tags = append(tags, fmt.Sprintf("%s:%s", k, v))
-	}
-	j := strings.Join(tags, ",")
-	u := self.tagsUrl(t, id)
-	addToUrl(u, j)
-	_, err := self.process(u, "DELETE", nil)
-	return err
-}
-
-// Take input of single Metric instance. If Timestamp is not defined, use current time
-func (self *Client) PushSingleGaugeMetric(id string, m Datapoint) error {
-	// id = self.cleanId(id)
-
-	if _, ok := m.Value.(float64); !ok {
-		f, err := ConvertToFloat64(m.Value)
-		if err != nil {
-			return err
-		}
-		m.Value = f
-	}
-
-	if m.Timestamp == 0 {
-		m.Timestamp = UnixMilli(time.Now())
-	}
-
-	mH := MetricHeader{
-		Id:   id,
-		Data: []Datapoint{m},
-		Type: Gauge,
-	}
-	return self.Write([]MetricHeader{mH})
-}
-
 // Read single Gauge metric's datapoints.
 // TODO: Remove and replace with better Read properties? Perhaps with iterators?
 func (self *Client) SingleGaugeMetric(id string, options map[string]string) ([]*Datapoint, error) {
@@ -436,24 +409,6 @@ func (self *Client) SingleGaugeMetric(id string, options map[string]string) ([]*
 	}
 	return metrics, nil
 
-}
-
-func (self *Client) sortMetrics(metrics []MetricHeader) (map[*SortKey][]MetricHeader, error) {
-	// First-key = tenant-type ?
-	// Second key the MetricHeaders..
-
-	m := make(map[*SortKey][]MetricHeader)
-
-	// Create map..
-	for _, v := range metrics {
-		s := &SortKey{Tenant: v.Tenant, Type: v.Type}
-		if m[s] == nil {
-			m[s] = make([]MetricHeader, 0)
-		}
-		m[s] = append(m[s], v)
-	}
-
-	return m, nil
 }
 
 // HTTP Helper functions
@@ -592,6 +547,12 @@ func TagEndpoint() Endpoint {
 	}
 }
 
+func TagsEndpoint(tags map[string]string) Endpoint {
+	return func(u *url.URL) {
+		addToUrl(u, tagsEncoder(tags))
+	}
+}
+
 func DataEndpoint() Endpoint {
 	return func(u *url.URL) {
 		addToUrl(u, "data")
@@ -626,6 +587,15 @@ func addToUrl(u *url.URL, s string) *url.URL {
 	return u
 }
 
+func tagsEncoder(t map[string]string) string {
+	tags := make([]string, 0, len(t))
+	for k, v := range t {
+		tags = append(tags, fmt.Sprintf("%s:%s", k, v))
+	}
+	j := strings.Join(tags, ",")
+	return j
+}
+
 func (self *Client) paramUrl(u *url.URL, options map[string]string) *url.URL {
 	q := u.Query()
 	for k, v := range options {
@@ -634,25 +604,4 @@ func (self *Client) paramUrl(u *url.URL, options map[string]string) *url.URL {
 
 	u.RawQuery = q.Encode()
 	return u
-}
-
-// If struct has Tenant defined, return it otherwise return self.Tenant
-func (self *Client) tenant(i interface{}) string {
-	r := reflect.ValueOf(i)
-
-	if r.Kind() == reflect.Ptr {
-		r = r.Elem()
-	}
-
-	if r.Kind() == reflect.Slice {
-		r = r.Index(0)
-	}
-
-	if r.Kind() == reflect.Struct {
-		v := r.FieldByName("Tenant")
-		if v.Kind() == reflect.String && len(v.String()) > 0 {
-			return v.String()
-		}
-	}
-	return self.Tenant
 }

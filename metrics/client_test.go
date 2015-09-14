@@ -118,32 +118,6 @@ func TestCreate(t *testing.T) {
 	}
 }
 
-func TestAddGaugeSingle(t *testing.T) {
-	c, err := integrationClient()
-	assert.Nil(t, err)
-
-	// With timestamp
-	m := Datapoint{Timestamp: time.Now().UnixNano() / 1e6, Value: 1.34}
-	err = c.PushSingleGaugeMetric("test/numeric/single/1", m)
-	assert.Nil(t, err)
-
-	// Without preset timestamp
-	m = Datapoint{Value: 2}
-	err = c.PushSingleGaugeMetric("test.numeric.single.2", m)
-	assert.Nil(t, err)
-
-	//  for both metrics and check that they're correctly filled
-	params := make(map[string]string)
-	metrics, err := c.SingleGaugeMetric("test/numeric/single/1", params)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, len(metrics), "Received different amount of datapoints than sent")
-
-	metrics, err = c.SingleGaugeMetric("test.numeric.single.2", params)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, len(metrics), "Received more datapoints than written")
-	assert.False(t, metrics[0].Timestamp < 1, "Timestamp was not correctly populated")
-}
-
 func TestTagsModification(t *testing.T) {
 	c, err := integrationClient()
 	assert.Nil(t, err)
@@ -165,7 +139,7 @@ func TestTagsModification(t *testing.T) {
 	md_tags, err := c.Tags(Gauge, id)
 	assert.Nil(t, err)
 
-	assert.True(t, reflect.DeepEqual(tags, *md_tags), "Tags did not match the updated ones")
+	assert.True(t, reflect.DeepEqual(tags, md_tags), "Tags did not match the updated ones")
 
 	// Delete some metric tags
 	err = c.DeleteTags(Gauge, id, tags)
@@ -174,32 +148,7 @@ func TestTagsModification(t *testing.T) {
 	// Fetch metric - check that tags were deleted
 	md_tags, err = c.Tags(Gauge, id)
 	assert.Nil(t, err)
-	assert.False(t, len(*md_tags) > 0, "Received deleted tags")
-}
-
-func TestTags(t *testing.T) {
-	c, err := integrationClient()
-	assert.Nil(t, err)
-	tags := make(map[string]string)
-	tTag, err := randomString()
-	tags[tTag] = "testValue"
-
-	// Write with tags
-	m := Datapoint{Value: float64(0.01), Tags: tags}
-	err = c.PushSingleGaugeMetric("test.tags.numeric.1", m)
-	assert.NoError(t, err)
-
-	// Search metrics with tag
-
-	// 		    @GET
-	// @Path("/{tenantId}/numeric")
-	// @ApiOperation(value = "Find numeric metrics data by their tags.", response = Map.cla@ApiParam(value = "Tag list", required = true) @Param("tags") Tags tags
-
-	// Get metric definition tags
-	// @Path("/{tenantId}/metrics/numeric/{id}/tags")
-	// @ApiOperation(value = "Retrieve tags associated with the metric definition.", response = Metric.class)
-
-	// Fetch a metric with values and check we still have tags
+	assert.False(t, len(md_tags) > 0, "Received deleted tags")
 }
 
 func TestAddMixedMulti(t *testing.T) {
@@ -250,36 +199,14 @@ func TestCheckErrors(t *testing.T) {
 	c, err := integrationClient()
 	assert.Nil(t, err)
 
-	err = c.PushSingleGaugeMetric("test.number.as.string", Datapoint{Value: "notFloat"})
+	mH := MetricHeader{
+		Id:   "test.number.as.string",
+		Data: []Datapoint{Datapoint{Value: "notFloat"}},
+		Type: Gauge,
+	}
+
+	err = c.Write([]MetricHeader{mH})
 	assert.NotNil(t, err, "Invalid non-float value should not be accepted")
 	_, err = c.SingleGaugeMetric("test.not.existing", make(map[string]string))
 	assert.Nil(t, err, "Querying empty metric should not generate an error")
-}
-
-func TestTenantFetching(t *testing.T) {
-	c, err := integrationClient()
-	assert.Nil(t, err)
-
-	// Test struct that does have Tenant defined
-	mh := MetricHeader{
-		Id:   "test.fetching.tenant.1",
-		Type: Counter,
-		Data: []Datapoint{},
-	}
-	assert.Equal(t, c.Tenant, c.tenant(mh))
-
-	other := "my.other.tenant"
-	mh.Tenant = other
-	assert.Equal(t, other, c.tenant(mh))
-
-	// Check also pointer access
-	assert.Equal(t, other, c.tenant(&mh))
-
-	// Test struct that doesn't have Tenant defined, should return self.Tenant
-	d := &Datapoint{
-		Timestamp: time.Now().Unix(),
-		Value:     float64(1.45),
-	}
-	assert.Equal(t, c.Tenant, c.tenant(d))
-
 }
