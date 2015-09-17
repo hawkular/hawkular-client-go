@@ -154,45 +154,43 @@ func TestTagsModification(t *testing.T) {
 func TestAddMixedMulti(t *testing.T) {
 
 	// Modify to send both Availability as well as Gauge metrics at the same time
-	if c, err := integrationClient(); err == nil {
+	c, err := integrationClient()
+	assert.NoError(t, err)
 
-		mone := Datapoint{Value: 1.45, Timestamp: UnixMilli(time.Now())}
-		hone := MetricHeader{
-			Id:   "test.multi.numeric.1",
-			Data: []Datapoint{mone},
-			Type: Gauge,
-		}
-
-		mtwo_1 := Datapoint{Value: 2, Timestamp: UnixMilli(time.Now())}
-
-		mtwo_2_t := UnixMilli(time.Now()) - 1e3
-
-		mtwo_2 := Datapoint{Value: float64(4.56), Timestamp: mtwo_2_t}
-		htwo := MetricHeader{
-			Id:   "test.multi.numeric.2",
-			Data: []Datapoint{mtwo_1, mtwo_2},
-			Type: Gauge,
-		}
-
-		h := []MetricHeader{hone, htwo}
-
-		err = c.Write(h)
-		assert.NoError(t, err)
-
-		time.Sleep(1000 * time.Millisecond)
-
-		var checkDatapoints = func(id string, expected int) []*Datapoint {
-			metric, err := c.SingleGaugeMetric(id, make(map[string]string))
-			assert.NoError(t, err)
-			assert.Equal(t, expected, len(metric), "Amount of datapoints does not match expected value")
-			return metric
-		}
-
-		checkDatapoints("test.multi.numeric.1", 1)
-		checkDatapoints("test.multi.numeric.2", 2)
-	} else {
-		t.Error(err)
+	mone := Datapoint{Value: 1.45, Timestamp: UnixMilli(time.Now())}
+	hone := MetricHeader{
+		Id:   "test.multi.numeric.1",
+		Data: []Datapoint{mone},
+		Type: Gauge,
 	}
+
+	mtwo_1 := Datapoint{Value: 2, Timestamp: UnixMilli(time.Now())}
+
+	mtwo_2_t := UnixMilli(time.Now()) - 1e3
+
+	mtwo_2 := Datapoint{Value: float64(4.56), Timestamp: mtwo_2_t}
+	htwo := MetricHeader{
+		Id:   "test.multi.numeric.2",
+		Data: []Datapoint{mtwo_1, mtwo_2},
+		Type: Counter,
+	}
+
+	h := []MetricHeader{hone, htwo}
+
+	err = c.Write(h)
+	assert.NoError(t, err)
+
+	time.Sleep(1000 * time.Millisecond)
+
+	var checkDatapoints = func(id string, typ MetricType, expected int) []*Datapoint {
+		metric, err := c.ReadMetric(typ, id)
+		assert.NoError(t, err)
+		assert.Equal(t, expected, len(metric), "Amount of datapoints does not match expected value")
+		return metric
+	}
+
+	checkDatapoints(hone.Id, hone.Type, 1)
+	checkDatapoints(htwo.Id, htwo.Type, 2)
 }
 
 func TestCheckErrors(t *testing.T) {

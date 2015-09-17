@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -129,6 +130,18 @@ func IdFilter(regexp string) Filter {
 	return Param("id", regexp)
 }
 
+func StartTimeFilter(duration time.Duration) Filter {
+	return Param("start", strconv.Itoa(int(duration)))
+}
+
+func EndTimeFilter(duration time.Duration) Filter {
+	return Param("end", strconv.Itoa(int(duration)))
+}
+
+func BucketsFilter(buckets int) Filter {
+	return Param("buckets", strconv.Itoa(buckets))
+}
+
 // The SEND method..
 
 func (self *Client) createRequest() *http.Request {
@@ -196,8 +209,6 @@ func (self *Client) Create(md MetricDefinition, o ...Modifier) (bool, error) {
 
 // Fetch definitions
 func (self *Client) Definitions(o ...Modifier) ([]*MetricDefinition, error) {
-	// TODO Feels silly to prepend URL in every occasion.. maybe it should be constructed
-	// instead?
 	o = prepend(o, self.Url("GET", TypeEndpoint(Generic)))
 
 	r, err := self.Send(o...)
@@ -341,6 +352,38 @@ func (self *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 
 	}
 	return nil
+}
+
+// Read data from the server
+func (self *Client) ReadMetric(t MetricType, id string, o ...Modifier) ([]*Datapoint, error) {
+	o = prepend(o, self.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id), DataEndpoint()))
+
+	r, err := self.Send(o...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode == http.StatusOK {
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for GaugeBucketpoint and so on for the rest.. uh
+		dp := []*Datapoint{}
+		if b != nil {
+			if err = json.Unmarshal(b, &dp); err != nil {
+				return nil, err
+			}
+		}
+		return dp, nil
+	} else if r.StatusCode > 399 {
+		return nil, self.parseErrorResponse(r)
+	}
+
+	return nil, nil
 }
 
 // Initialization
