@@ -4,6 +4,8 @@ import (
 	"crypto/rand"
 	"fmt"
 	assert "github.com/stretchr/testify/require"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
@@ -205,6 +207,28 @@ func TestCheckErrors(t *testing.T) {
 
 	err = c.Write([]MetricHeader{mH})
 	assert.NotNil(t, err, "Invalid non-float value should not be accepted")
-	_, err = c.SingleGaugeMetric("test.not.existing", make(map[string]string))
+	_, err = c.ReadMetric(mH.Type, mH.Id)
 	assert.Nil(t, err, "Querying empty metric should not generate an error")
+}
+
+func TestTokenAuthentication(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Authorization", r.Header.Get("Authorization"))
+	}))
+	defer s.Close()
+
+	tenant, err := randomString()
+	assert.NoError(t, err)
+
+	p := Parameters{
+		Tenant: tenant,
+		Host:   s.URL[7:],
+		Token:  "62590bf9827213afadea8b5077a5bdc0",
+	}
+	c, err := NewHawkularClient(p)
+	assert.NoError(t, err)
+
+	r, err := c.Send(c.Url("GET"))
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("Bearer %s", p.Token), r.Header.Get("X-Authorization"))
 }
