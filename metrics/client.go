@@ -35,8 +35,7 @@ const (
 
 type Parameters struct {
 	Tenant    string // Technically optional, but requires setting Tenant() option everytime
-	Host      string
-	Path      string // Modifieral
+	Url       string
 	TLSConfig *tls.Config
 	Token     string
 }
@@ -425,15 +424,20 @@ func (self *Client) ReadMetric(t MetricType, id string, o ...Modifier) ([]*Datap
 // Initialization
 
 func NewHawkularClient(p Parameters) (*Client, error) {
-	if p.Path == "" {
-		p.Path = base_url
+	uri, err := url.Parse(p.Url)
+	if err != nil {
+		return nil, err
+	}
+
+	if uri.Path == "" {
+		uri.Path = base_url
 	}
 
 	u := &url.URL{
-		Host:   p.Host,
-		Path:   p.Path,
-		Scheme: "http",
-		Opaque: fmt.Sprintf("//%s/%s", p.Host, p.Path),
+		Host:   uri.Host,
+		Path:   uri.Path,
+		Scheme: uri.Scheme,
+		Opaque: fmt.Sprintf("//%s/%s", uri.Host, uri.Path),
 	}
 
 	c := &http.Client{

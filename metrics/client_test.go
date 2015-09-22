@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"fmt"
 	assert "github.com/stretchr/testify/require"
 	"net/http"
@@ -18,7 +19,7 @@ func integrationClient() (*Client, error) {
 	}
 	// p := Parameters{Tenant: t, Host: "localhost:8080", Path: "hawkular/metrics"}
 	// p := Parameters{Tenant: t, Host: "localhost:8180"}
-	p := Parameters{Tenant: t, Host: "192.168.1.105:8080"}
+	p := Parameters{Tenant: t, Url: "http://192.168.1.105:8080"}
 	// p := Parameters{Tenant: t, Host: "209.132.178.218:18080"}
 	return NewHawkularClient(p)
 }
@@ -211,8 +212,8 @@ func TestCheckErrors(t *testing.T) {
 	assert.Nil(t, err, "Querying empty metric should not generate an error")
 }
 
-func TestTokenAuthentication(t *testing.T) {
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestTokenAuthenticationWithSSL(t *testing.T) {
+	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Authorization", r.Header.Get("Authorization"))
 	}))
 	defer s.Close()
@@ -220,11 +221,15 @@ func TestTokenAuthentication(t *testing.T) {
 	tenant, err := randomString()
 	assert.NoError(t, err)
 
+	tC := &tls.Config{InsecureSkipVerify: true}
+
 	p := Parameters{
-		Tenant: tenant,
-		Host:   s.URL[7:],
-		Token:  "62590bf9827213afadea8b5077a5bdc0",
+		Tenant:    tenant,
+		Url:       s.URL,
+		Token:     "62590bf9827213afadea8b5077a5bdc0",
+		TLSConfig: tC,
 	}
+
 	c, err := NewHawkularClient(p)
 	assert.NoError(t, err)
 
