@@ -130,12 +130,12 @@ func IdFilter(regexp string) Filter {
 	return Param("id", regexp)
 }
 
-func StartTimeFilter(duration time.Duration) Filter {
-	return Param("start", strconv.Itoa(int(duration)))
+func StartTimeFilter(startTime time.Time) Filter {
+	return Param("start", strconv.Itoa(int(startTime.Unix())))
 }
 
-func EndTimeFilter(duration time.Duration) Filter {
-	return Param("end", strconv.Itoa(int(duration)))
+func EndTimeFilter(endTime time.Time) Filter {
+	return Param("end", strconv.Itoa(int(endTime.Unix())))
 }
 
 func BucketsFilter(buckets int) Filter {
