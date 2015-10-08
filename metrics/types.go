@@ -3,6 +3,7 @@ package metrics
 import (
 	"encoding/json"
 	"fmt"
+	// "time"
 )
 
 // MetricType restrictions
@@ -107,4 +108,22 @@ type MetricDefinition struct {
 	Id            string            `json:"id"`
 	Tags          map[string]string `json:"tags,omitempty"`
 	RetentionTime int               `json:"dataRetention,omitempty"`
+}
+
+// TODO Fix the Start & End to return a time.Time
+type Bucketpoint struct {
+	Start       int64        `json:"start"`
+	End         int64        `json:"end"`
+	Min         float64      `json:"min"`
+	Max         float64      `json:"max"`
+	Avg         float64      `json:"avg"`
+	Median      float64      `json:"median"`
+	Empty       bool         `json:"empty"`
+	Samples     int64        `json:"samples"`
+	Percentiles []Percentile `json:"percentiles"`
+}
+
+type Percentile struct {
+	Quantile float64 `json:"quantile"`
+	Value    float64 `json:"value"`
 }

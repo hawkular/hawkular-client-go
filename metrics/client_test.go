@@ -17,9 +17,9 @@ func integrationClient() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	// p := Parameters{Tenant: t, Host: "localhost:8080", Path: "hawkular/metrics"}
+	p := Parameters{Tenant: t, Url: "http://localhost:8080"}
 	// p := Parameters{Tenant: t, Host: "localhost:8180"}
-	p := Parameters{Tenant: t, Url: "http://192.168.1.105:8080"}
+	// p := Parameters{Tenant: t, Url: "http://192.168.1.105:8080"}
 	// p := Parameters{Tenant: t, Host: "209.132.178.218:18080"}
 	return NewHawkularClient(p)
 }
@@ -236,4 +236,40 @@ func TestTokenAuthenticationWithSSL(t *testing.T) {
 	r, err := c.Send(c.Url("GET"))
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("Bearer %s", p.Token), r.Header.Get("X-Authorization"))
+}
+
+func TestBuckets(t *testing.T) {
+	c, err := integrationClient()
+	assert.NoError(t, err)
+
+	tags := make(map[string]string)
+	tags["units"] = "bytes"
+	tags["env"] = "unittest"
+	md_tags := MetricDefinition{Id: "test.buckets.1", Tags: tags, Type: Gauge}
+
+	ok, err := c.Create(md_tags)
+	assert.NoError(t, err)
+	assert.True(t, ok)
+
+	mone := Datapoint{Value: 1.45, Timestamp: UnixMilli(time.Now())}
+	hone := MetricHeader{
+		Id:   "test.buckets.1",
+		Data: []Datapoint{mone},
+		Type: Gauge,
+	}
+
+	err = c.Write([]MetricHeader{hone})
+	assert.NoError(t, err)
+
+	// TODO Muuta PercentilesFilter -> Percentiles (modifier)
+	bp, err := c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsFilter(1), PercentilesFilter([]float64{90.0, 99.0})))
+	assert.NoError(t, err)
+	assert.NotNil(t, bp)
+
+	assert.Equal(t, 1, len(bp))
+	assert.Equal(t, int64(1), bp[0].Samples)
+	assert.Equal(t, 2, len(bp[0].Percentiles))
+	assert.Equal(t, 1.45, bp[0].Percentiles[0].Value)
+	assert.Equal(t, 0.9, bp[0].Percentiles[0].Quantile)
+	assert.True(t, bp[0].Percentiles[1].Quantile >= 0.99) // Double arithmetic could cause this to be 0.9900000001 etc
 }

@@ -142,6 +142,15 @@ func BucketsFilter(buckets int) Filter {
 	return Param("buckets", strconv.Itoa(buckets))
 }
 
+func PercentilesFilter(percentiles []float64) Filter {
+	s := make([]string, 0, len(percentiles))
+	for _, v := range percentiles {
+		s = append(s, fmt.Sprintf("%v", v))
+	}
+	j := strings.Join(s, ",")
+	return Param("percentiles", j)
+}
+
 // The SEND method..
 
 func (self *Client) createRequest() *http.Request {
@@ -414,6 +423,38 @@ func (self *Client) ReadMetric(t MetricType, id string, o ...Modifier) ([]*Datap
 			}
 		}
 		return dp, nil
+	} else if r.StatusCode > 399 {
+		return nil, self.parseErrorResponse(r)
+	}
+
+	return nil, nil
+}
+
+// TODO ReadMetrics should be equal also, to read new tagsFilter aggregation..
+func (self *Client) ReadBuckets(t MetricType, o ...Modifier) ([]*Bucketpoint, error) {
+	o = prepend(o, self.Url("GET", TypeEndpoint(t), DataEndpoint()))
+
+	r, err := self.Send(o...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode == http.StatusOK {
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check for GaugeBucketpoint and so on for the rest.. uh
+		bp := []*Bucketpoint{}
+		if b != nil {
+			if err = json.Unmarshal(b, &bp); err != nil {
+				return nil, err
+			}
+		}
+		return bp, nil
 	} else if r.StatusCode > 399 {
 		return nil, self.parseErrorResponse(r)
 	}
