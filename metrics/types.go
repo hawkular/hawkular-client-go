@@ -1,10 +1,77 @@
+/*
+   Copyright 2015-2016 Red Hat, Inc. and/or its affiliates
+   and other contributors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package metrics
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	// "time"
+	"net/http"
+	"net/url"
 )
+
+// HawkularClientError Extracted error information from Hawkular-Metrics server
+type HawkularClientError struct {
+	msg  string
+	Code int
+}
+
+// Parameters Initialization parameters to the client
+type Parameters struct {
+	Tenant      string // Technically optional, but requires setting Tenant() option everytime
+	Url         string
+	TLSConfig   *tls.Config
+	Token       string
+	Concurrency int
+}
+
+// Client HawkularClient's data structure
+type Client struct {
+	Tenant string
+	url    *url.URL
+	client *http.Client
+	Token  string
+	pool   chan (*poolRequest)
+}
+
+type poolRequest struct {
+	req   *http.Request
+	rChan chan (*poolResponse)
+}
+
+type poolResponse struct {
+	err  error
+	resp *http.Response
+}
+
+// HawkularClient HawkularClient base type to define available functions..
+type HawkularClient interface {
+	Send(*http.Request) (*http.Response, error)
+}
+
+// Modifier Modifiers base type
+type Modifier func(*http.Request) error
+
+// Filter Filter type for querying
+type Filter func(r *http.Request)
+
+// Endpoint Endpoint type to define request URL
+type Endpoint func(u *url.URL)
 
 // MetricType restrictions
 type MetricType int
@@ -30,29 +97,30 @@ var shortForm = []string{
 	"metrics",
 }
 
-func (self MetricType) validate() error {
-	if int(self) > len(longForm) && int(self) > len(shortForm) {
-		return fmt.Errorf("Given MetricType value %d is not valid", self)
+func (mt MetricType) validate() error {
+	if int(mt) > len(longForm) && int(mt) > len(shortForm) {
+		return fmt.Errorf("Given MetricType value %d is not valid", mt)
 	}
 	return nil
 }
 
-func (self MetricType) String() string {
-	if err := self.validate(); err != nil {
+// String Get string representation of type
+func (mt MetricType) String() string {
+	if err := mt.validate(); err != nil {
 		return "unknown"
 	}
-	return longForm[self]
+	return longForm[mt]
 }
 
-func (self MetricType) shortForm() string {
-	if err := self.validate(); err != nil {
+func (mt MetricType) shortForm() string {
+	if err := mt.validate(); err != nil {
 		return "unknown"
 	}
-	return shortForm[self]
+	return shortForm[mt]
 }
 
-// Custom unmarshaller
-func (self *MetricType) UnmarshalJSON(b []byte) error {
+// UnmarshalJSON Custom unmarshaller for MetricType
+func (mt *MetricType) UnmarshalJSON(b []byte) error {
 	var f interface{}
 	err := json.Unmarshal(b, &f)
 	if err != nil {
@@ -62,7 +130,7 @@ func (self *MetricType) UnmarshalJSON(b []byte) error {
 	if str, ok := f.(string); ok {
 		for i, v := range shortForm {
 			if str == v {
-				*self = MetricType(i)
+				*mt = MetricType(i)
 				break
 			}
 		}
@@ -71,13 +139,9 @@ func (self *MetricType) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (self MetricType) MarshalJSON() ([]byte, error) {
-	return json.Marshal(self.String())
-}
-
-type SortKey struct {
-	Tenant string
-	Type   MetricType
+// MarshalJSON Custom marshaller for MetricType
+func (mt MetricType) MarshalJSON() ([]byte, error) {
+	return json.Marshal(mt.String())
 }
 
 // Hawkular-Metrics external structs
