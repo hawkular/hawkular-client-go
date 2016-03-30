@@ -154,14 +154,14 @@ type MetricHeader struct {
 	Data   []Datapoint `json:"data"`
 }
 
-// Value should be convertible to float64 for numeric values
-// Timestamp is milliseconds since epoch
+// Datapoint Value should be convertible to float64 for numeric values, Timestamp is milliseconds since epoch
 type Datapoint struct {
 	Timestamp int64             `json:"timestamp"`
 	Value     interface{}       `json:"value"`
 	Tags      map[string]string `json:"tags,omitempty"`
 }
 
+// HawkularError Return payload from Hawkular-Metrics if processing failed
 type HawkularError struct {
 	ErrorMsg string `json:"errorMsg"`
 }
@@ -175,6 +175,8 @@ type MetricDefinition struct {
 }
 
 // TODO Fix the Start & End to return a time.Time
+
+// Bucketpoint Return structure for bucketed data
 type Bucketpoint struct {
 	Start       int64        `json:"start"`
 	End         int64        `json:"end"`
@@ -187,7 +189,29 @@ type Bucketpoint struct {
 	Percentiles []Percentile `json:"percentiles"`
 }
 
+// Percentile Hawkular-Metrics calculated percentiles representation
 type Percentile struct {
 	Quantile float64 `json:"quantile"`
 	Value    float64 `json:"value"`
+}
+
+// Order Basetype for selecting the sorting of datapoints
+type Order int
+
+const (
+	// ASC Ascending
+	ASC = iota
+	// DESC Descending
+	DESC
+)
+
+// String Get string representation of type
+func (o Order) String() string {
+	switch o {
+	case ASC:
+		return "ASC"
+	case DESC:
+		return "DESC"
+	}
+	return ""
 }

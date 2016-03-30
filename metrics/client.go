@@ -134,6 +134,26 @@ func BucketsFilter(buckets int) Filter {
 	return Param("buckets", strconv.Itoa(buckets))
 }
 
+// LimitFilter Query parameter to limit result count
+func LimitFilter(limit int) Filter {
+	return Param("limit", strconv.Itoa(limit))
+}
+
+// OrderFilter Query parameter to define the ordering of datapoints
+func OrderFilter(order Order) Filter {
+	return Param("order", order.String())
+}
+
+// StartFromBeginningFilter Return data from the oldest stored datapoint
+func StartFromBeginningFilter() Filter {
+	return Param("fromEarliest", "true")
+}
+
+// StackedFilter Force downsampling of stacked return values
+func StackedFilter() Filter {
+	return Param("stacked", "true")
+}
+
 // PercentilesFilter Query parameter to define the requested percentiles
 func PercentilesFilter(percentiles []float64) Filter {
 	s := make([]string, 0, len(percentiles))
