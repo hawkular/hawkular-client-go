@@ -383,7 +383,7 @@ func (c *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 
 				// Should be sorted and splitted by type & tenant..
 				on := o
-				on = prepend(on, c.Url("POST", TypeEndpoint(k), DataEndpoint()), Data(v))
+				on = prepend(on, c.Url("POST", TypeEndpoint(k), RawEndpoint()), Data(v))
 
 				r, err := c.Send(on...)
 				if err != nil {
@@ -415,7 +415,7 @@ func (c *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 
 // ReadMetric Read metric datapoints from the server
 func (c *Client) ReadMetric(t MetricType, id string, o ...Modifier) ([]*Datapoint, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id), DataEndpoint()))
+	o = prepend(o, c.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id), RawEndpoint()))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -447,7 +447,7 @@ func (c *Client) ReadMetric(t MetricType, id string, o ...Modifier) ([]*Datapoin
 
 // ReadBuckets Read datapoints from the server with in buckets (aggregates)
 func (c *Client) ReadBuckets(t MetricType, o ...Modifier) ([]*Bucketpoint, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(t), DataEndpoint()))
+	o = prepend(o, c.Url("GET", TypeEndpoint(t), StatsEndpoint()))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -590,10 +590,17 @@ func TagsEndpoint(tags map[string]string) Endpoint {
 	}
 }
 
-// DataEndpoint URL endpoint for inserting / requesting datapoints
-func DataEndpoint() Endpoint {
+// RawEndpoint Endpoint to read and write raw datapoints
+func RawEndpoint() Endpoint {
 	return func(u *url.URL) {
-		addToURL(u, "data")
+		addToURL(u, "raw")
+	}
+}
+
+// StatsEndpoint Endpoint to read aggregated metrics
+func StatsEndpoint() Endpoint {
+	return func(u *url.URL) {
+		addToURL(u, "stats")
 	}
 }
 
