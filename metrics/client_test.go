@@ -70,13 +70,6 @@ func TestCreate(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
 
-	// Following would be nice:
-	// mdd, err := c.Definitions(Filters(Type(Gauge), Id(id)))
-
-	// mdd, err := c.Definition(Gauge, id)
-	// assert.Nil(t, err)
-	// assert.Equal(t, md.Id, mdd.Id)
-
 	// Try to recreate the same..
 	ok, err = c.Create(md)
 	assert.False(t, ok, "Should have received false when recreating them same metric")
@@ -86,14 +79,14 @@ func TestCreate(t *testing.T) {
 	tags := make(map[string]string)
 	tags["units"] = "bytes"
 	tags["env"] = "unittest"
-	md_tags := MetricDefinition{Id: "test.metric.create.numeric.2", Tags: tags, Type: Gauge}
+	mdTags := MetricDefinition{Id: "test.metric.create.numeric.2", Tags: tags, Type: Gauge}
 
-	ok, err = c.Create(md_tags)
+	ok, err = c.Create(mdTags)
 	assert.True(t, ok, "MetricDefinition should have been created")
 	assert.Nil(t, err)
 
-	md_reten := MetricDefinition{Id: "test/metric/create/availability/1", RetentionTime: 12, Type: Availability}
-	ok, err = c.Create(md_reten)
+	mdReten := MetricDefinition{Id: "test/metric/create/availability/1", RetentionTime: 12, Type: Availability}
+	ok, err = c.Create(mdReten)
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
 
@@ -139,19 +132,19 @@ func TestTagsModification(t *testing.T) {
 	assert.Nil(t, err)
 
 	// Fetch metric tags - check for equality
-	md_tags, err := c.Tags(Gauge, id)
+	mdTags, err := c.Tags(Gauge, id)
 	assert.Nil(t, err)
 
-	assert.True(t, reflect.DeepEqual(tags, md_tags), "Tags did not match the updated ones")
+	assert.True(t, reflect.DeepEqual(tags, mdTags), "Tags did not match the updated ones")
 
 	// Delete some metric tags
 	err = c.DeleteTags(Gauge, id, tags)
 	assert.Nil(t, err)
 
 	// Fetch metric - check that tags were deleted
-	md_tags, err = c.Tags(Gauge, id)
+	mdTags, err = c.Tags(Gauge, id)
 	assert.Nil(t, err)
-	assert.False(t, len(md_tags) > 0, "Received deleted tags")
+	assert.False(t, len(mdTags) > 0, "Received deleted tags")
 }
 
 func TestAddMixedMulti(t *testing.T) {
@@ -167,14 +160,14 @@ func TestAddMixedMulti(t *testing.T) {
 		Type: Gauge,
 	}
 
-	mtwo_1 := Datapoint{Value: 2, Timestamp: UnixMilli(time.Now())}
+	mTwoOne := Datapoint{Value: 2, Timestamp: UnixMilli(time.Now())}
 
-	mtwo_2_t := UnixMilli(time.Now()) - 1e3
+	mTwoTwoT := UnixMilli(time.Now()) - 1e3
 
-	mtwo_2 := Datapoint{Value: float64(4.56), Timestamp: mtwo_2_t}
+	mTwoTwo := Datapoint{Value: float64(4.56), Timestamp: mTwoTwoT}
 	htwo := MetricHeader{
 		Id:   "test.multi.numeric.2",
-		Data: []Datapoint{mtwo_1, mtwo_2},
+		Data: []Datapoint{mTwoOne, mTwoTwo},
 		Type: Counter,
 	}
 
@@ -245,9 +238,9 @@ func TestBuckets(t *testing.T) {
 	tags := make(map[string]string)
 	tags["units"] = "bytes"
 	tags["env"] = "unittest"
-	md_tags := MetricDefinition{Id: "test.buckets.1", Tags: tags, Type: Gauge}
+	mdTags := MetricDefinition{Id: "test.buckets.1", Tags: tags, Type: Gauge}
 
-	ok, err := c.Create(md_tags)
+	ok, err := c.Create(mdTags)
 	assert.NoError(t, err)
 	assert.True(t, ok)
 
@@ -272,4 +265,36 @@ func TestBuckets(t *testing.T) {
 	assert.Equal(t, 1.45, bp[0].Percentiles[0].Value)
 	assert.Equal(t, 0.9, bp[0].Percentiles[0].Quantile)
 	assert.True(t, bp[0].Percentiles[1].Quantile >= 0.99) // Double arithmetic could cause this to be 0.9900000001 etc
+}
+
+func TestTagQueries(t *testing.T) {
+	c, err := integrationClient()
+	assert.NoError(t, err)
+
+	tags := make(map[string]string)
+
+	// Create definitions
+	for i := 1; i < 10; i++ {
+		hostname := fmt.Sprintf("host%d", i)
+		metricID := fmt.Sprintf("test.tags.host.%d", i)
+		tags["hostname"] = hostname // No need to worry about using the same map
+		md := MetricDefinition{Id: metricID, Tags: tags, Type: Gauge}
+
+		ok, err := c.Create(md)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+	}
+
+	tags["hostname"] = "host[123]"
+
+	// Now query
+	mds, err := c.Definitions(Filters(TagsFilter(tags)))
+	assert.NoError(t, err)
+	assert.Equal(t, 3, len(mds))
+
+	// Now query the available hostnames
+	values, err := c.TagValues(tags)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(values))
+	assert.Equal(t, 3, len(values["hostname"]))
 }

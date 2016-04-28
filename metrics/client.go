@@ -296,6 +296,36 @@ func (c *Client) Definition(t MetricType, id string, o ...Modifier) (*MetricDefi
 	return nil, nil
 }
 
+// TagValues Query available tagValues with a TagsFilter, TypeFilter
+func (c *Client) TagValues(tagQuery map[string]string, o ...Modifier) (map[string][]string, error) {
+	o = prepend(o, c.Url("GET", TypeEndpoint(Generic), TagEndpoint(), TagsEndpoint(tagQuery)))
+
+	r, err := c.Send(o...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode == http.StatusOK {
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		md := make(map[string][]string)
+		if b != nil {
+			if err = json.Unmarshal(b, &md); err != nil {
+				return nil, err
+			}
+		}
+		return md, err
+	} else if r.StatusCode > 399 {
+		return nil, c.parseErrorResponse(r)
+	}
+
+	return nil, nil
+}
+
 // UpdateTags Update tags of a metric (or create if not existing)
 func (c *Client) UpdateTags(t MetricType, id string, tags map[string]string, o ...Modifier) error {
 	o = prepend(o, c.Url("PUT", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint()), Data(tags))
