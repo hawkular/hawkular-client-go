@@ -32,9 +32,6 @@ func randomString() (string, error) {
 	return fmt.Sprintf("%X", b[:]), nil
 }
 
-func createError(err error) {
-}
-
 func TestTenantModifier(t *testing.T) {
 	c, err := integrationClient()
 	assert.Nil(t, err)
@@ -43,7 +40,7 @@ func TestTenantModifier(t *testing.T) {
 
 	// Create for another tenant
 	id := "test.metric.create.numeric.tenant.1"
-	md := MetricDefinition{Id: id, Type: Gauge}
+	md := MetricDefinition{ID: id, Type: Gauge}
 
 	ok, err := c.Create(md, Tenant(ot))
 	assert.Nil(t, err)
@@ -65,7 +62,7 @@ func TestCreate(t *testing.T) {
 	assert.Nil(t, err)
 
 	id := "test.metric.create.numeric.1"
-	md := MetricDefinition{Id: id, Type: Gauge}
+	md := MetricDefinition{ID: id, Type: Gauge}
 	ok, err := c.Create(md)
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
@@ -79,13 +76,13 @@ func TestCreate(t *testing.T) {
 	tags := make(map[string]string)
 	tags["units"] = "bytes"
 	tags["env"] = "unittest"
-	mdTags := MetricDefinition{Id: "test.metric.create.numeric.2", Tags: tags, Type: Gauge}
+	mdTags := MetricDefinition{ID: "test.metric.create.numeric.2", Tags: tags, Type: Gauge}
 
 	ok, err = c.Create(mdTags)
 	assert.True(t, ok, "MetricDefinition should have been created")
 	assert.Nil(t, err)
 
-	mdReten := MetricDefinition{Id: "test/metric/create/availability/1", RetentionTime: 12, Type: Availability}
+	mdReten := MetricDefinition{ID: "test/metric/create/availability/1", RetentionTime: 12, Type: Availability}
 	ok, err = c.Create(mdReten)
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
@@ -97,16 +94,16 @@ func TestCreate(t *testing.T) {
 
 	mdm := make(map[string]MetricDefinition)
 	for _, v := range mdq {
-		mdm[v.Id] = *v
+		mdm[v.ID] = *v
 	}
 
-	assert.Equal(t, md.Id, mdm[id].Id)
+	assert.Equal(t, md.ID, mdm[id].ID)
 	assert.True(t, reflect.DeepEqual(tags, mdm["test.metric.create.numeric.2"].Tags))
 
 	mda, err := c.Definitions(Filters(TypeFilter(Availability)))
 	assert.Nil(t, err)
 	assert.Equal(t, 1, len(mda))
-	assert.Equal(t, "test/metric/create/availability/1", mda[0].Id)
+	assert.Equal(t, "test/metric/create/availability/1", mda[0].ID)
 	assert.Equal(t, 12, mda[0].RetentionTime)
 
 	if mda[0].Type != Availability {
@@ -119,7 +116,7 @@ func TestTagsModification(t *testing.T) {
 	assert.Nil(t, err)
 	id := "test/tags/modify/1"
 	// Create metric without tags
-	md := MetricDefinition{Id: id, Type: Gauge}
+	md := MetricDefinition{ID: id, Type: Gauge}
 	ok, err := c.Create(md)
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
@@ -153,40 +150,49 @@ func TestAddMixedMulti(t *testing.T) {
 	c, err := integrationClient()
 	assert.NoError(t, err)
 
-	mone := Datapoint{Value: 1.45, Timestamp: UnixMilli(time.Now())}
-	hone := MetricHeader{
-		Id:   "test.multi.numeric.1",
+	startTime := time.Now().Truncate(time.Millisecond)
+
+	mone := Datapoint{Value: 2, Timestamp: startTime}
+	hOne := MetricHeader{
+		ID:   "test.multi.numeric.1",
 		Data: []Datapoint{mone},
-		Type: Gauge,
-	}
-
-	mTwoOne := Datapoint{Value: 2, Timestamp: UnixMilli(time.Now())}
-
-	mTwoTwoT := UnixMilli(time.Now()) - 1e3
-
-	mTwoTwo := Datapoint{Value: float64(4.56), Timestamp: mTwoTwoT}
-	htwo := MetricHeader{
-		Id:   "test.multi.numeric.2",
-		Data: []Datapoint{mTwoOne, mTwoTwo},
 		Type: Counter,
 	}
 
-	h := []MetricHeader{hone, htwo}
+	mTwoOne := Datapoint{Value: 1.45, Timestamp: startTime}
+
+	mTwoTwoT := startTime.Add(-1 * time.Second)
+
+	mTwoTwo := Datapoint{Value: float64(4.56), Timestamp: mTwoTwoT}
+	hTwo := MetricHeader{
+		ID:   "test.multi.numeric.2",
+		Data: []Datapoint{mTwoOne, mTwoTwo},
+		Type: Gauge,
+	}
+
+	h := []MetricHeader{hOne, hTwo}
 
 	err = c.Write(h)
 	assert.NoError(t, err)
 
-	time.Sleep(1000 * time.Millisecond)
+	time.Sleep(1000 * time.Millisecond) // Wait for write to finish.. maybe we should allow syncgroup here..
 
-	var checkDatapoints = func(id string, typ MetricType, expected int) []*Datapoint {
-		metric, err := c.ReadMetric(typ, id)
+	var checkDatapoints = func(orig *MetricHeader) {
+		metric, err := c.ReadMetric(orig.Type, orig.ID)
 		assert.NoError(t, err)
-		assert.Equal(t, expected, len(metric), "Amount of datapoints does not match expected value")
-		return metric
+		assert.Equal(t, len(orig.Data), len(metric), "Amount of datapoints does not match expected value")
+
+		for i, d := range metric {
+			assert.True(t, orig.Data[i].Timestamp.Equal(d.Timestamp))
+			// If the Type was Counter, this is actually an Integer..
+			origV, _ := ConvertToFloat64(orig.Data[i].Value)
+			recvV, _ := ConvertToFloat64(d.Value)
+			assert.Equal(t, origV, recvV)
+		}
 	}
 
-	checkDatapoints(hone.Id, hone.Type, 1)
-	checkDatapoints(htwo.Id, htwo.Type, 2)
+	checkDatapoints(&hOne)
+	checkDatapoints(&hTwo)
 }
 
 func TestCheckErrors(t *testing.T) {
@@ -194,14 +200,14 @@ func TestCheckErrors(t *testing.T) {
 	assert.Nil(t, err)
 
 	mH := MetricHeader{
-		Id:   "test.number.as.string",
+		ID:   "test.number.as.string",
 		Data: []Datapoint{Datapoint{Value: "notFloat"}},
 		Type: Gauge,
 	}
 
 	err = c.Write([]MetricHeader{mH})
 	assert.NotNil(t, err, "Invalid non-float value should not be accepted")
-	_, err = c.ReadMetric(mH.Type, mH.Id)
+	_, err = c.ReadMetric(mH.Type, mH.ID)
 	assert.Nil(t, err, "Querying empty metric should not generate an error")
 }
 
@@ -238,15 +244,15 @@ func TestBuckets(t *testing.T) {
 	tags := make(map[string]string)
 	tags["units"] = "bytes"
 	tags["env"] = "unittest"
-	mdTags := MetricDefinition{Id: "test.buckets.1", Tags: tags, Type: Gauge}
+	mdTags := MetricDefinition{ID: "test.buckets.1", Tags: tags, Type: Gauge}
 
 	ok, err := c.Create(mdTags)
 	assert.NoError(t, err)
 	assert.True(t, ok)
 
-	mone := Datapoint{Value: 1.45, Timestamp: UnixMilli(time.Now())}
+	mone := Datapoint{Value: 1.45, Timestamp: time.Now()}
 	hone := MetricHeader{
-		Id:   "test.buckets.1",
+		ID:   "test.buckets.1",
 		Data: []Datapoint{mone},
 		Type: Gauge,
 	}
@@ -278,7 +284,7 @@ func TestTagQueries(t *testing.T) {
 		hostname := fmt.Sprintf("host%d", i)
 		metricID := fmt.Sprintf("test.tags.host.%d", i)
 		tags["hostname"] = hostname // No need to worry about using the same map
-		md := MetricDefinition{Id: metricID, Tags: tags, Type: Gauge}
+		md := MetricDefinition{ID: metricID, Tags: tags, Type: Gauge}
 
 		ok, err := c.Create(md)
 		assert.NoError(t, err)

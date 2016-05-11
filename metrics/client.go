@@ -31,6 +31,10 @@ import (
 )
 
 // TODO Instrumentation? To get statistics?
+// TODO Change Datapoint -> time.Time (and fix the JSON marshalling / unmarshalling..)
+// TODO Fix buckets to use time.Time also
+// TODO Fix documentation to make all those functions are sentences (godoc)
+// TODO Allow tracking (with syncgroup) when time series have been written to Hawkular-Metrics
 
 func (c *HawkularClientError) Error() string {
 	return fmt.Sprintf("Hawkular returned status code %d, error message: %s", c.Code, c.msg)
@@ -460,7 +464,6 @@ func (c *Client) ReadMetric(t MetricType, id string, o ...Modifier) ([]*Datapoin
 			return nil, err
 		}
 
-		// Check for GaugeBucketpoint and so on for the rest.. uh
 		dp := []*Datapoint{}
 		if b != nil {
 			if err = json.Unmarshal(b, &dp); err != nil {
