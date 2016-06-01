@@ -58,6 +58,7 @@ To create new metric definitions, we need the MetricDefinition struct. The requi
 ----
 tags := make(map[string]string)
 tags["env"] = "documentation-project"
+
 md_tags := MetricDefinition{Id: "doc.gauge.1", Tags: tags, Type: Gauge}
 ok, err = c.Create(md_tags)
 ----
@@ -78,6 +79,7 @@ If the Write() happens to fail with some temporary reason (such as network issue
 [source,go]
 ----
 dp := Datapoint{Value: 1.45, Timestamp: time.Now()}
+
 header := MetricHeader{
       ID:   "doc.gauge.1",
       Data: []Datapoint{dp},
@@ -105,6 +107,7 @@ To request aggregated view of the stored metrics, we can use the `ReadBuckets()`
 ----
 tags := make(map[string]string)
 tags["env"] = "unittest"
+
 bp, err := c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsFilter(1), PercentilesFilter([]float64{90.0, 99.0})))
 ----
 

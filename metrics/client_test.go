@@ -175,10 +175,8 @@ func TestAddMixedMulti(t *testing.T) {
 	err = c.Write(h)
 	assert.NoError(t, err)
 
-	time.Sleep(1000 * time.Millisecond) // Wait for write to finish.. maybe we should allow syncgroup here..
-
 	var checkDatapoints = func(orig *MetricHeader) {
-		metric, err := c.ReadMetric(orig.Type, orig.ID)
+		metric, err := c.ReadRaw(orig.Type, orig.ID)
 		assert.NoError(t, err)
 		assert.Equal(t, len(orig.Data), len(metric), "Amount of datapoints does not match expected value")
 
@@ -207,7 +205,7 @@ func TestCheckErrors(t *testing.T) {
 
 	err = c.Write([]MetricHeader{mH})
 	assert.NotNil(t, err, "Invalid non-float value should not be accepted")
-	_, err = c.ReadMetric(mH.Type, mH.ID)
+	_, err = c.ReadRaw(mH.Type, mH.ID)
 	assert.Nil(t, err, "Querying empty metric should not generate an error")
 }
 
