@@ -20,7 +20,7 @@ package metrics
 import (
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
+	// "fmt"
 	"net/http"
 	"net/url"
 	"time"
@@ -75,75 +75,14 @@ type Filter func(r *http.Request)
 type Endpoint func(u *url.URL)
 
 // MetricType restrictions
-type MetricType int
+type MetricType string
 
 const (
-	Gauge = iota
-	Availability
-	Counter
-	Generic
+	Gauge        MetricType = "gauge"
+	Availability            = "availability"
+	Counter                 = "counter"
+	Generic                 = "metrics"
 )
-
-var longForm = []string{
-	"gauges",
-	"availability",
-	"counters",
-	"metrics",
-}
-
-var shortForm = []string{
-	"gauge",
-	"availability",
-	"counter",
-	"metrics",
-}
-
-func (mt MetricType) validate() error {
-	if int(mt) > len(longForm) && int(mt) > len(shortForm) {
-		return fmt.Errorf("Given MetricType value %d is not valid", mt)
-	}
-	return nil
-}
-
-// String is a convenience function to return string representation of type
-func (mt MetricType) String() string {
-	if err := mt.validate(); err != nil {
-		return "unknown"
-	}
-	return longForm[mt]
-}
-
-func (mt MetricType) shortForm() string {
-	if err := mt.validate(); err != nil {
-		return "unknown"
-	}
-	return shortForm[mt]
-}
-
-// UnmarshalJSON is a custom unmarshaller for MetricType (from string representation)
-func (mt *MetricType) UnmarshalJSON(b []byte) error {
-	var f interface{}
-	err := json.Unmarshal(b, &f)
-	if err != nil {
-		return err
-	}
-
-	if str, ok := f.(string); ok {
-		for i, v := range shortForm {
-			if str == v {
-				*mt = MetricType(i)
-				break
-			}
-		}
-	}
-
-	return nil
-}
-
-// MarshalJSON is a custom marshaller for MetricType (using string representation)
-func (mt MetricType) MarshalJSON() ([]byte, error) {
-	return json.Marshal(mt.String())
-}
 
 // MetricHeader is the header struct for time series, which has identifiers (tenant, type, id) for uniqueness
 // and []Datapoint to describe the actual time series values.
@@ -251,9 +190,8 @@ func (o Order) String() string {
 	return ""
 }
 
-// Tenant is the structure that defines a tenant
+// TenantDefinition is the structure that defines a tenant
 type TenantDefinition struct {
-	ID         string         `json:"id"`
-	Retentions map[string]int `json:"retentions"`
-	// Retentions map[MetricType]int `json:"retentions"`
+	ID         string             `json:"id"`
+	Retentions map[MetricType]int `json:"retentions"`
 }

@@ -45,11 +45,11 @@ func TestTenant(t *testing.T) {
 
 	// Create tenant with retention settings
 	idr, _ := randomString()
-	var typ MetricType
-	typ = Gauge
+	// var typ MetricType
+	typ := Gauge
 
-	retentions := make(map[string]int)
-	retentions[typ.shortForm()] = 5
+	retentions := make(map[MetricType]int)
+	retentions[typ] = 5
 	tenant = TenantDefinition{ID: idr, Retentions: retentions}
 	created, err = c.CreateTenant(tenant)
 	assert.NoError(t, err)
@@ -77,7 +77,7 @@ func TestTenant(t *testing.T) {
 	assert.NotNil(t, ft)
 	assert.Equal(t, idr, ft.ID)
 
-	assert.Equal(t, ft.Retentions[typ.shortForm()], 5)
+	assert.Equal(t, ft.Retentions[typ], 5)
 }
 
 func TestTenantModifier(t *testing.T) {
@@ -155,7 +155,7 @@ func TestCreate(t *testing.T) {
 	assert.Equal(t, 12, mda[0].RetentionTime)
 
 	if mda[0].Type != Availability {
-		assert.FailNow(t, "Type did not match Availability", int(mda[0].Type))
+		assert.FailNow(t, "Type did not match Availability", mda[0].Type)
 	}
 }
 

@@ -105,7 +105,7 @@ func Param(k string, v string) Filter {
 
 // TypeFilter is a query parameter to filter by type
 func TypeFilter(t MetricType) Filter {
-	return Param("type", t.shortForm())
+	return Param("type", fmt.Sprint(t))
 }
 
 // TagsFilter is a query parameter to filter with tags query
@@ -656,7 +656,14 @@ func TenantEndpoint() Endpoint {
 // TypeEndpoint is a URL endpoint setting metricType
 func TypeEndpoint(t MetricType) Endpoint {
 	return func(u *url.URL) {
-		addToURL(u, t.String())
+		switch t {
+		case Gauge:
+			addToURL(u, "gauges")
+		case Counter:
+			addToURL(u, "counters")
+		default:
+			addToURL(u, string(t))
+		}
 	}
 }
 
