@@ -211,6 +211,61 @@ func (c *Client) Send(o ...Modifier) (*http.Response, error) {
 
 // Commands
 
+// Tenants returns a list of tenants from the server
+func (c *Client) Tenants(o ...Modifier) ([]*TenantDefinition, error) {
+	o = prepend(o, c.Url("GET", TenantEndpoint()))
+
+	r, err := c.Send(o...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode == http.StatusOK {
+		b, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		tenants := []*TenantDefinition{}
+		if b != nil {
+			if err = json.Unmarshal(b, &tenants); err != nil {
+				return nil, err
+			}
+		}
+		return tenants, err
+	} else if r.StatusCode > 399 {
+		return nil, c.parseErrorResponse(r)
+	}
+
+	return nil, nil
+}
+
+// CreateTenant creates a tenant definition on the server
+func (c *Client) CreateTenant(tenant TenantDefinition, o ...Modifier) (bool, error) {
+	o = prepend(o, c.Url("POST", TenantEndpoint()), Data(tenant))
+
+	r, err := c.Send(o...)
+	if err != nil {
+		return false, err
+	}
+
+	defer r.Body.Close()
+
+	if r.StatusCode > 399 {
+		err = c.parseErrorResponse(r)
+		if err, ok := err.(*HawkularClientError); ok {
+			if err.Code != http.StatusConflict {
+				return false, err
+			} else {
+				return false, nil
+			}
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // Create creates a new metric definition
 func (c *Client) Create(md MetricDefinition, o ...Modifier) (bool, error) {
 	// Keep the order, add custom prepend
@@ -590,6 +645,12 @@ func (c *Client) createURL(e ...Endpoint) *url.URL {
 		f(&mu)
 	}
 	return &mu
+}
+
+func TenantEndpoint() Endpoint {
+	return func(u *url.URL) {
+		addToURL(u, "tenants")
+	}
 }
 
 // TypeEndpoint is a URL endpoint setting metricType

@@ -240,7 +240,7 @@ const (
 	DESC
 )
 
-// String Get string representation of type
+// String returns a string representation of type
 func (o Order) String() string {
 	switch o {
 	case ASC:
@@ -249,4 +249,11 @@ func (o Order) String() string {
 		return "DESC"
 	}
 	return ""
+}
+
+// Tenant is the structure that defines a tenant
+type TenantDefinition struct {
+	ID         string         `json:"id"`
+	Retentions map[string]int `json:"retentions"`
+	// Retentions map[MetricType]int `json:"retentions"`
 }

@@ -32,6 +32,54 @@ func randomString() (string, error) {
 	return fmt.Sprintf("%X", b[:]), nil
 }
 
+func TestTenant(t *testing.T) {
+	c, err := integrationClient()
+	assert.NoError(t, err)
+
+	// Create simple Tenant
+	id, _ := randomString()
+	tenant := TenantDefinition{ID: id}
+	created, err := c.CreateTenant(tenant)
+	assert.NoError(t, err)
+	assert.True(t, created)
+
+	// Create tenant with retention settings
+	idr, _ := randomString()
+	var typ MetricType
+	typ = Gauge
+
+	retentions := make(map[string]int)
+	retentions[typ.shortForm()] = 5
+	tenant = TenantDefinition{ID: idr, Retentions: retentions}
+	created, err = c.CreateTenant(tenant)
+	assert.NoError(t, err)
+	assert.True(t, created)
+
+	// Fetch Tenants
+	tenants, err := c.Tenants()
+	assert.NoError(t, err)
+	assert.True(t, len(tenants) > 0)
+
+	var tenantFinder = func(tenantId string, tenantList []*TenantDefinition) *TenantDefinition {
+		for _, v := range tenantList {
+			if v.ID == tenantId {
+				return v
+			}
+		}
+		return nil
+	}
+
+	ft := tenantFinder(id, tenants)
+	assert.NotNil(t, ft)
+	assert.Equal(t, id, ft.ID)
+
+	ft = tenantFinder(idr, tenants)
+	assert.NotNil(t, ft)
+	assert.Equal(t, idr, ft.ID)
+
+	assert.Equal(t, ft.Retentions[typ.shortForm()], 5)
+}
+
 func TestTenantModifier(t *testing.T) {
 	c, err := integrationClient()
 	assert.Nil(t, err)
