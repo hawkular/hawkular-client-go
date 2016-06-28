@@ -30,10 +30,6 @@ import (
 	"time"
 )
 
-// TODO Instrumentation? To get statistics?
-// TODO Fix buckets to use time.Time also
-// TODO Fix documentation to make all those functions as sentences (godoc)
-
 func (c *HawkularClientError) Error() string {
 	return fmt.Sprintf("Hawkular returned status code %d, error message: %s", c.Code, c.msg)
 }

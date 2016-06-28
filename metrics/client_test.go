@@ -323,31 +323,27 @@ func TestBuckets(t *testing.T) {
 
 	hone.Data = data
 
-	// mone := Datapoint{Value: 1.45, Timestamp: time.Now()}
-
 	err = c.Write([]MetricHeader{hone})
 	assert.NoError(t, err)
 
-	// TODO Muuta PercentilesFilter -> Percentiles (modifier)
-	// bp, err := c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsFilter(1), PercentilesFilter([]float64{90.0, 99.0})))
-	// assert.NoError(t, err)
-	// assert.NotNil(t, bp)
+	bp, err := c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsFilter(1), PercentilesFilter([]float64{90.0, 99.0})))
+	assert.NoError(t, err)
+	assert.NotNil(t, bp)
 
-	// assert.Equal(t, 1, len(bp), "Only one bucket was requested")
-	// assert.Equal(t, int64(10), bp[0].Samples, "Sampling should be based on 10 values")
-	// assert.Equal(t, 2, len(bp[0].Percentiles), "Two percentiles were requested")
+	assert.Equal(t, 1, len(bp), "Only one bucket was requested")
+	assert.Equal(t, int64(10), bp[0].Samples, "Sampling should be based on 10 values")
+	assert.Equal(t, 2, len(bp[0].Percentiles), "Two percentiles were requested")
 
-	// // assert.Equal(t, 1.45, bp[0].Percentiles[1].Value)
-	// assert.Equal(t, 0.9, bp[0].Percentiles[0].Quantile)
-	// assert.True(t, bp[0].Percentiles[1].Quantile >= 0.99) // Double arithmetic could cause this to be 0.9900000001 etc
-	// assert.True(t, bp[0].Start.Unix() > 0, "Start time should be higher than 0")
-	// assert.True(t, bp[0].End.Unix() > 0, "End time should be higher than 0")
+	assert.Equal(t, 90.0, bp[0].Percentiles[0].Quantile)
+	assert.Equal(t, 99.0, bp[0].Percentiles[1].Quantile)
+	assert.True(t, bp[0].Start.Unix() > 0, "Start time should be higher than 0")
+	assert.True(t, bp[0].End.Unix() > 0, "End time should be higher than 0")
 
-	// bp, err = c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsDurationFilter(time.Second), StartTimeFilter(ts)))
-	// assert.NoError(t, err)
-	// assert.NotNil(t, bp)
+	bp, err = c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsDurationFilter(time.Second), StartTimeFilter(ts)))
+	assert.NoError(t, err)
+	assert.NotNil(t, bp)
 
-	// assert.Equal(t, 1, len(bp), "Only one second was requested")
+	assert.Equal(t, 11, len(bp), "One second buckets were requested for the whole time")
 }
 
 func TestTagQueries(t *testing.T) {
@@ -385,16 +381,6 @@ func TestTagQueries(t *testing.T) {
 func getMetrics(prefix int) []MetricHeader {
 	points := 10
 	metrics := 100000
-
-	// for (int i = 0; i < size; i += datapointsPerMetric) {
-	//     List<DataPoint<Double>> points = new ArrayList<>(datapointsPerMetric);
-	//     for (int j = 0; j < datapointsPerMetric; j++) {
-	//         points.add(new DataPoint<>(timestamp + i, (double) j));
-	//     }
-	//     Metric<Double> metric =
-	//             new Metric<>(new MetricId<>("b", GAUGE, "insert.metrics.test." + i), points);
-	//     metrics.add(metric);
-	// }
 
 	ts := time.Now()
 	m := make([]MetricHeader, 0, metrics)
@@ -462,13 +448,6 @@ func BenchmarkHawkular(b *testing.B) {
 			}(p)
 		}
 
-		// for _, v := range m {
-		// 	wg.Add(1)
-		// 	go func(mh MetricHeader) {
-		// 		c.Write([]MetricHeader{mh})
-		// 		wg.Done()
-		// 	}(v)
-		// }
 		wg.Wait()
 	}
 }
