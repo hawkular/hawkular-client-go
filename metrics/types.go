@@ -152,8 +152,8 @@ type MetricDefinition struct {
 
 // Bucketpoint is a return structure for bucketed data requests (stats endpoint)
 type Bucketpoint struct {
-	Start       int64        `json:"start"`
-	End         int64        `json:"end"`
+	Start       time.Time    `json:"-"`
+	End         time.Time    `json:"-"`
 	Min         float64      `json:"min"`
 	Max         float64      `json:"max"`
 	Avg         float64      `json:"avg"`
@@ -161,6 +161,29 @@ type Bucketpoint struct {
 	Empty       bool         `json:"empty"`
 	Samples     int64        `json:"samples"`
 	Percentiles []Percentile `json:"percentiles"`
+}
+
+type bucketpoint Bucketpoint
+
+type bucketpointJSON struct {
+	bucketpoint
+	StartTs int64 `json:"start"`
+	EndTs   int64 `json:"end"`
+}
+
+// UnmarshalJSON is a custom unmarshaller to transform int64 timestamps to time.Time
+func (b *Bucketpoint) UnmarshalJSON(payload []byte) error {
+	bp := bucketpointJSON{}
+	err := json.Unmarshal(payload, &bp)
+	if err != nil {
+		return err
+	}
+
+	*b = Bucketpoint(bp.bucketpoint)
+	b.Start = FromUnixMilli(bp.StartTs)
+	b.End = FromUnixMilli(bp.EndTs)
+
+	return nil
 }
 
 // Percentile is Hawkular-Metrics' estimated (not exact) percentile

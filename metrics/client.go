@@ -74,8 +74,9 @@ func Data(data interface{}) Modifier {
 }
 
 // URL sets the request URL
-func (c *Client) Url(method string, e ...Endpoint) Modifier {
+func (c *Client) URL(method string, e ...Endpoint) Modifier {
 	// TODO Create composite URLs? Add().Add().. etc? Easier to modify on the fly..
+	// And also remove the necessary order of Adds
 	return func(r *http.Request) error {
 		u := c.createURL(e...)
 		r.URL = u
@@ -121,17 +122,24 @@ func IdFilter(regexp string) Filter {
 
 // StartTimeFilter is a query parameter to filter with start time
 func StartTimeFilter(startTime time.Time) Filter {
-	return Param("start", strconv.Itoa(int(startTime.Unix())))
+	// return Param("start", strconv.Itoa(int(startTime.Unix())))
+	return Param("start", strconv.Itoa(int(ToUnixMilli(startTime))))
 }
 
 // EndTimeFilter is a query parameter to filter with end time
 func EndTimeFilter(endTime time.Time) Filter {
-	return Param("end", strconv.Itoa(int(endTime.Unix())))
+	return Param("end", strconv.Itoa(int(ToUnixMilli(endTime))))
 }
 
 // BucketsFilter is a query parameter to define amount of buckets
 func BucketsFilter(buckets int) Filter {
 	return Param("buckets", strconv.Itoa(buckets))
+}
+
+// BucketsDurationFilter is a query parameter to set the size of a bucket based on duration
+// Minimum supported bucket is 1 millisecond
+func BucketsDurationFilter(duration time.Duration) Filter {
+	return Param("bucketDuration", fmt.Sprintf("%dms", (duration.Nanoseconds()/1e6)))
 }
 
 // LimitFilter is a query parameter to limit result count
@@ -213,7 +221,7 @@ func (c *Client) Send(o ...Modifier) (*http.Response, error) {
 
 // Tenants returns a list of tenants from the server
 func (c *Client) Tenants(o ...Modifier) ([]*TenantDefinition, error) {
-	o = prepend(o, c.Url("GET", TenantEndpoint()))
+	o = prepend(o, c.URL("GET", TenantEndpoint()))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -243,7 +251,7 @@ func (c *Client) Tenants(o ...Modifier) ([]*TenantDefinition, error) {
 
 // CreateTenant creates a tenant definition on the server
 func (c *Client) CreateTenant(tenant TenantDefinition, o ...Modifier) (bool, error) {
-	o = prepend(o, c.Url("POST", TenantEndpoint()), Data(tenant))
+	o = prepend(o, c.URL("POST", TenantEndpoint()), Data(tenant))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -269,7 +277,7 @@ func (c *Client) CreateTenant(tenant TenantDefinition, o ...Modifier) (bool, err
 // Create creates a new metric definition
 func (c *Client) Create(md MetricDefinition, o ...Modifier) (bool, error) {
 	// Keep the order, add custom prepend
-	o = prepend(o, c.Url("POST", TypeEndpoint(md.Type)), Data(md))
+	o = prepend(o, c.URL("POST", TypeEndpoint(md.Type)), Data(md))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -294,7 +302,7 @@ func (c *Client) Create(md MetricDefinition, o ...Modifier) (bool, error) {
 
 // Definitions fetches metric definitions from the server
 func (c *Client) Definitions(o ...Modifier) ([]*MetricDefinition, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(Generic)))
+	o = prepend(o, c.URL("GET", TypeEndpoint(Generic)))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -324,7 +332,7 @@ func (c *Client) Definitions(o ...Modifier) ([]*MetricDefinition, error) {
 
 // Definition returns a single metric definition
 func (c *Client) Definition(t MetricType, id string, o ...Modifier) (*MetricDefinition, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id)))
+	o = prepend(o, c.URL("GET", TypeEndpoint(t), SingleMetricEndpoint(id)))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -354,7 +362,7 @@ func (c *Client) Definition(t MetricType, id string, o ...Modifier) (*MetricDefi
 
 // TagValues queries for available tagValues
 func (c *Client) TagValues(tagQuery map[string]string, o ...Modifier) (map[string][]string, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(Generic), TagEndpoint(), TagsEndpoint(tagQuery)))
+	o = prepend(o, c.URL("GET", TypeEndpoint(Generic), TagEndpoint(), TagsEndpoint(tagQuery)))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -384,7 +392,7 @@ func (c *Client) TagValues(tagQuery map[string]string, o ...Modifier) (map[strin
 
 // UpdateTags modifies the tags of a metric definition
 func (c *Client) UpdateTags(t MetricType, id string, tags map[string]string, o ...Modifier) error {
-	o = prepend(o, c.Url("PUT", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint()), Data(tags))
+	o = prepend(o, c.URL("PUT", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint()), Data(tags))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -402,7 +410,7 @@ func (c *Client) UpdateTags(t MetricType, id string, tags map[string]string, o .
 
 // DeleteTags deletes given tags from the definition
 func (c *Client) DeleteTags(t MetricType, id string, tags map[string]string, o ...Modifier) error {
-	o = prepend(o, c.Url("DELETE", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint(), TagsEndpoint(tags)))
+	o = prepend(o, c.URL("DELETE", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint(), TagsEndpoint(tags)))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -420,7 +428,7 @@ func (c *Client) DeleteTags(t MetricType, id string, tags map[string]string, o .
 
 // Tags fetches metric definition's tags
 func (c *Client) Tags(t MetricType, id string, o ...Modifier) (map[string]string, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint()))
+	o = prepend(o, c.URL("GET", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint()))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -469,7 +477,7 @@ func (c *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 
 				// Should be sorted and splitted by type & tenant..
 				on := o
-				on = prepend(on, c.Url("POST", TypeEndpoint(k), RawEndpoint()), Data(v))
+				on = prepend(on, c.URL("POST", TypeEndpoint(k), RawEndpoint()), Data(v))
 
 				r, err := c.Send(on...)
 				if err != nil {
@@ -501,7 +509,7 @@ func (c *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 
 // ReadMetric reads metric datapoints from the server for the given metric
 func (c *Client) ReadRaw(t MetricType, id string, o ...Modifier) ([]*Datapoint, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(t), SingleMetricEndpoint(id), RawEndpoint()))
+	o = prepend(o, c.URL("GET", TypeEndpoint(t), SingleMetricEndpoint(id), RawEndpoint()))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -532,7 +540,7 @@ func (c *Client) ReadRaw(t MetricType, id string, o ...Modifier) ([]*Datapoint, 
 
 // ReadBuckets reads datapoints from the server, aggregated to buckets with given parameters.
 func (c *Client) ReadBuckets(t MetricType, o ...Modifier) ([]*Bucketpoint, error) {
-	o = prepend(o, c.Url("GET", TypeEndpoint(t), StatsEndpoint()))
+	o = prepend(o, c.URL("GET", TypeEndpoint(t), StatsEndpoint()))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -647,6 +655,7 @@ func (c *Client) createURL(e ...Endpoint) *url.URL {
 	return &mu
 }
 
+// TenantEndpoint is a URL endpoint to fetch tenant related information
 func TenantEndpoint() Endpoint {
 	return func(u *url.URL) {
 		addToURL(u, "tenants")

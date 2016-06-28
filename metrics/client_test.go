@@ -5,9 +5,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	assert "github.com/stretchr/testify/require"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -17,6 +19,9 @@ func integrationClient() (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// fmt.Printf("Tenant: %s\n", t)
+
 	p := Parameters{Tenant: t, Url: "http://localhost:8080"}
 	// p := Parameters{Tenant: t, Host: "localhost:8180"}
 	// p := Parameters{Tenant: t, Url: "http://192.168.1.105:8080"}
@@ -233,6 +238,8 @@ func TestAddMixedMulti(t *testing.T) {
 			// If the Type was Counter, this is actually an Integer..
 			origV, _ := ConvertToFloat64(orig.Data[i].Value)
 			recvV, _ := ConvertToFloat64(d.Value)
+
+			assert.True(t, d.Timestamp.Unix() > 0)
 			assert.Equal(t, origV, recvV)
 		}
 	}
@@ -278,7 +285,7 @@ func TestTokenAuthenticationWithSSL(t *testing.T) {
 	c, err := NewHawkularClient(p)
 	assert.NoError(t, err)
 
-	r, err := c.Send(c.Url("GET"))
+	r, err := c.Send(c.URL("GET"))
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("Bearer %s", p.Token), r.Header.Get("X-Authorization"))
 }
@@ -296,27 +303,51 @@ func TestBuckets(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, ok)
 
-	mone := Datapoint{Value: 1.45, Timestamp: time.Now()}
 	hone := MetricHeader{
-		ID:   "test.buckets.1",
-		Data: []Datapoint{mone},
+		ID: "test.buckets.1",
+		// Data: []Datapoint{mone},
 		Type: Gauge,
 	}
+
+	data := make([]Datapoint, 0, 10)
+	ts := time.Now()
+
+	for i := 0; i < 10; i++ {
+		ts = ts.Add(-1 * time.Second)
+		val := 1.45 * float64(i)
+		data = append(data, Datapoint{
+			Value:     val,
+			Timestamp: ts,
+		})
+	}
+
+	hone.Data = data
+
+	// mone := Datapoint{Value: 1.45, Timestamp: time.Now()}
 
 	err = c.Write([]MetricHeader{hone})
 	assert.NoError(t, err)
 
 	// TODO Muuta PercentilesFilter -> Percentiles (modifier)
-	bp, err := c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsFilter(1), PercentilesFilter([]float64{90.0, 99.0})))
-	assert.NoError(t, err)
-	assert.NotNil(t, bp)
+	// bp, err := c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsFilter(1), PercentilesFilter([]float64{90.0, 99.0})))
+	// assert.NoError(t, err)
+	// assert.NotNil(t, bp)
 
-	assert.Equal(t, 1, len(bp))
-	assert.Equal(t, int64(1), bp[0].Samples)
-	assert.Equal(t, 2, len(bp[0].Percentiles))
-	assert.Equal(t, 1.45, bp[0].Percentiles[0].Value)
-	assert.Equal(t, 0.9, bp[0].Percentiles[0].Quantile)
-	assert.True(t, bp[0].Percentiles[1].Quantile >= 0.99) // Double arithmetic could cause this to be 0.9900000001 etc
+	// assert.Equal(t, 1, len(bp), "Only one bucket was requested")
+	// assert.Equal(t, int64(10), bp[0].Samples, "Sampling should be based on 10 values")
+	// assert.Equal(t, 2, len(bp[0].Percentiles), "Two percentiles were requested")
+
+	// // assert.Equal(t, 1.45, bp[0].Percentiles[1].Value)
+	// assert.Equal(t, 0.9, bp[0].Percentiles[0].Quantile)
+	// assert.True(t, bp[0].Percentiles[1].Quantile >= 0.99) // Double arithmetic could cause this to be 0.9900000001 etc
+	// assert.True(t, bp[0].Start.Unix() > 0, "Start time should be higher than 0")
+	// assert.True(t, bp[0].End.Unix() > 0, "End time should be higher than 0")
+
+	// bp, err = c.ReadBuckets(Gauge, Filters(TagsFilter(tags), BucketsDurationFilter(time.Second), StartTimeFilter(ts)))
+	// assert.NoError(t, err)
+	// assert.NotNil(t, bp)
+
+	// assert.Equal(t, 1, len(bp), "Only one second was requested")
 }
 
 func TestTagQueries(t *testing.T) {
@@ -349,4 +380,95 @@ func TestTagQueries(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(values))
 	assert.Equal(t, 3, len(values["hostname"]))
+}
+
+func getMetrics(prefix int) []MetricHeader {
+	points := 10
+	metrics := 100000
+
+	// for (int i = 0; i < size; i += datapointsPerMetric) {
+	//     List<DataPoint<Double>> points = new ArrayList<>(datapointsPerMetric);
+	//     for (int j = 0; j < datapointsPerMetric; j++) {
+	//         points.add(new DataPoint<>(timestamp + i, (double) j));
+	//     }
+	//     Metric<Double> metric =
+	//             new Metric<>(new MetricId<>("b", GAUGE, "insert.metrics.test." + i), points);
+	//     metrics.add(metric);
+	// }
+
+	ts := time.Now()
+	m := make([]MetricHeader, 0, metrics)
+
+	for j := 0; j < (points * metrics); j += points {
+		id := fmt.Sprintf("bench.metric.%d.%d", prefix, j)
+		data := make([]Datapoint, 0, points)
+		for k := 0; k < points; k++ {
+			ts = ts.Add(1 * time.Millisecond)
+			data = append(data, Datapoint{
+				Timestamp: ts,
+				Value:     float64(k),
+			})
+		}
+		m = append(m, MetricHeader{
+			ID:   id,
+			Type: Gauge,
+			Data: data,
+		})
+	}
+
+	return m
+}
+
+func toBatches(m []MetricHeader, batchSize int) chan []MetricHeader {
+	if batchSize == 0 {
+		c := make(chan []MetricHeader, 1)
+		c <- m
+		return c
+	}
+
+	size := int(math.Ceil(float64(len(m)) / float64(batchSize)))
+	c := make(chan []MetricHeader, size)
+
+	for i := 0; i < len(m); i += batchSize {
+		n := i + batchSize
+		if len(m) < n {
+			n = len(m)
+		}
+		part := m[i:n]
+		c <- part
+	}
+
+	return c
+}
+
+func BenchmarkHawkular(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		m := getMetrics(i)
+		t, _ := randomString()
+		p := Parameters{Tenant: t, Url: "http://localhost:8080", Concurrency: 32}
+		c, _ := NewHawkularClient(p)
+
+		b.ResetTimer()
+
+		wg := &sync.WaitGroup{}
+		parts := toBatches(m, 100)
+		close(parts)
+
+		for p := range parts {
+			wg.Add(1)
+			go func(mh []MetricHeader) {
+				c.Write(mh)
+				wg.Done()
+			}(p)
+		}
+
+		// for _, v := range m {
+		// 	wg.Add(1)
+		// 	go func(mh MetricHeader) {
+		// 		c.Write([]MetricHeader{mh})
+		// 		wg.Done()
+		// 	}(v)
+		// }
+		wg.Wait()
+	}
 }
