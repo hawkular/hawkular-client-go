@@ -159,7 +159,7 @@ type Bucketpoint struct {
 	Avg         float64      `json:"avg"`
 	Median      float64      `json:"median"`
 	Empty       bool         `json:"empty"`
-	Samples     int64        `json:"samples"`
+	Samples     uint64       `json:"samples"`
 	Percentiles []Percentile `json:"percentiles"`
 }
 

@@ -331,7 +331,7 @@ func TestBuckets(t *testing.T) {
 	assert.NotNil(t, bp)
 
 	assert.Equal(t, 1, len(bp), "Only one bucket was requested")
-	assert.Equal(t, int64(10), bp[0].Samples, "Sampling should be based on 10 values")
+	assert.Equal(t, uint64(10), bp[0].Samples, "Sampling should be based on 10 values")
 	assert.Equal(t, 2, len(bp[0].Percentiles), "Two percentiles were requested")
 
 	assert.Equal(t, 90.0, bp[0].Percentiles[0].Quantile)
