@@ -19,6 +19,7 @@ package metrics
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -180,6 +181,10 @@ func (c *Client) createRequest() *http.Request {
 	}
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Hawkular-Tenant", c.Tenant)
+
+	if len(c.Credentials) > 0 {
+		req.Header.Add("Authorization", fmt.Sprintf("Basic %s", c.Credentials))
+	}
 
 	if len(c.Token) > 0 {
 		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", c.Token))
@@ -573,6 +578,14 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 		return nil, err
 	}
 
+	if (p.Username != "" && p.Password == "") || (p.Username == "" && p.Password != "") {
+		return nil, fmt.Errorf("To configure credentials, you must specify both Username and Password")
+	}
+
+	if (p.Username != "" && p.Password != "") && (p.Token != "") {
+		return nil, fmt.Errorf("You cannot specify both Username/Password credentials and a Token.")
+	}
+
 	if uri.Path == "" {
 		uri.Path = baseURL
 	}
@@ -592,16 +605,22 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 		c.Transport = transport
 	}
 
+	var creds string
+	if p.Username != "" && p.Password != "" {
+		creds = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%v:%v", p.Username, p.Password)))
+	}
+
 	if p.Concurrency < 1 {
 		p.Concurrency = 1
 	}
 
 	client := &Client{
-		url:    u,
-		Tenant: p.Tenant,
-		Token:  p.Token,
-		client: c,
-		pool:   make(chan *poolRequest, p.Concurrency),
+		url:         u,
+		Tenant:      p.Tenant,
+		Credentials: creds,
+		Token:       p.Token,
+		client:      c,
+		pool:        make(chan *poolRequest, p.Concurrency),
 	}
 
 	for i := 0; i < p.Concurrency; i++ {
