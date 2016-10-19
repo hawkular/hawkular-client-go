@@ -37,17 +37,20 @@ type Parameters struct {
 	Tenant      string // Technically optional, but requires setting Tenant() option everytime
 	Url         string
 	TLSConfig   *tls.Config
+	Username    string
+	Password    string
 	Token       string
 	Concurrency int
 }
 
 // Client is HawkularClient's internal data structure
 type Client struct {
-	Tenant string
-	url    *url.URL
-	client *http.Client
-	Token  string
-	pool   chan (*poolRequest)
+	Tenant       string
+	url          *url.URL
+	client       *http.Client
+	Credentials  string // base64 encoded username/password for Basic header
+	Token        string // authentication token for Bearer header
+	pool         chan (*poolRequest)
 }
 
 type poolRequest struct {

@@ -3,6 +3,7 @@ package metrics
 import (
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	assert "github.com/stretchr/testify/require"
 	"math"
@@ -288,6 +289,66 @@ func TestTokenAuthenticationWithSSL(t *testing.T) {
 	r, err := c.Send(c.URL("GET"))
 	assert.NoError(t, err)
 	assert.Equal(t, fmt.Sprintf("Bearer %s", p.Token), r.Header.Get("X-Authorization"))
+}
+
+func TestBasicAuthenticationWithSSL(t *testing.T) {
+	s := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Authorization", r.Header.Get("Authorization"))
+	}))
+	defer s.Close()
+
+	tC := &tls.Config{InsecureSkipVerify: true}
+
+	p := Parameters{
+		Tenant:    "some tenant",
+		Url:       s.URL,
+		Username:  "user",
+		Password:  "pass",
+		TLSConfig: tC,
+	}
+
+	c, err := NewHawkularClient(p)
+	assert.NoError(t, err)
+
+	r, err := c.Send(c.URL("GET"))
+	assert.NoError(t, err)
+	assert.Equal(t, fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%v:%v", p.Username, p.Password)))), r.Header.Get("X-Authorization"))
+}
+
+func TestInvalidBasicAuthentication(t *testing.T) {
+	tC := &tls.Config{InsecureSkipVerify: true}
+
+	p := Parameters{
+		Tenant:    "some tenant",
+		Url:       "http://localhost:8080",
+		Username:  "user",
+		Password:  "pass",
+		Token:     "token",
+		TLSConfig: tC,
+	}
+
+	_, err := NewHawkularClient(p)
+	assert.Error(t, err, "Should not be able to specify both credentials and token")
+
+	p = Parameters{
+		Tenant:    "some tenant",
+		Url:       "http://localhost:8080",
+		Username:  "user",
+		TLSConfig: tC,
+	}
+
+	_, err = NewHawkularClient(p)
+	assert.Error(t, err, "Should not be able to specify just username")
+
+	p = Parameters{
+		Tenant:    "some tenant",
+		Url:       "http://localhost:8080",
+		Password:  "pass",
+		TLSConfig: tC,
+	}
+
+	_, err = NewHawkularClient(p)
+	assert.Error(t, err, "Should not be able to specify just password")
 }
 
 func TestBuckets(t *testing.T) {
