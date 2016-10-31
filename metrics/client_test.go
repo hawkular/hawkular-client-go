@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
-	assert "github.com/stretchr/testify/require"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	assert "github.com/stretchr/testify/require"
 )
 
 func integrationClient() (*Client, error) {
@@ -141,10 +142,16 @@ func TestCreate(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, ok, "MetricDefinition should have been created")
 
+	// Test one with whitespace
+	mdSpace := MetricDefinition{ID: "test metric whitespace 1", Type: Gauge}
+	ok, err = c.Create(mdSpace)
+	assert.Nil(t, err)
+	assert.True(t, ok, "MetricDefinition should have been created")
+
 	// Fetch all the previously created metrics and test equalities..
 	mdq, err := c.Definitions(Filters(TypeFilter(Gauge)))
 	assert.Nil(t, err)
-	assert.Equal(t, 2, len(mdq), "Size of the returned gauge metrics does not match 2")
+	assert.Equal(t, 3, len(mdq), "Size of the returned gauge metrics does not match 3")
 
 	mdm := make(map[string]MetricDefinition)
 	for _, v := range mdq {
@@ -152,6 +159,7 @@ func TestCreate(t *testing.T) {
 	}
 
 	assert.Equal(t, md.ID, mdm[id].ID)
+	assert.Equal(t, mdSpace.ID, mdm[mdSpace.ID].ID)
 	assert.True(t, reflect.DeepEqual(tags, mdm["test.metric.create.numeric.2"].Tags))
 
 	mda, err := c.Definitions(Filters(TypeFilter(Availability)))
@@ -178,7 +186,8 @@ func TestTagsModification(t *testing.T) {
 	// Add tags
 	tags := make(map[string]string)
 	tags["ab"] = "ac"
-	tags["host"] = "test"
+	tags["host value"] = "test whitespace"
+	tags["plus+is+valid+too"] = "plus+value"
 	err = c.UpdateTags(Gauge, id, tags)
 	assert.Nil(t, err)
 
@@ -196,6 +205,22 @@ func TestTagsModification(t *testing.T) {
 	mdTags, err = c.Tags(Gauge, id)
 	assert.Nil(t, err)
 	assert.False(t, len(mdTags) > 0, "Received deleted tags")
+}
+
+func checkDatapoints(t *testing.T, c *Client, orig *MetricHeader) {
+	metric, err := c.ReadRaw(orig.Type, orig.ID)
+	assert.NoError(t, err)
+	assert.Equal(t, len(orig.Data), len(metric), "Amount of datapoints does not match expected value")
+
+	for i, d := range metric {
+		assert.True(t, orig.Data[i].Timestamp.Equal(d.Timestamp))
+		// If the Type was Counter, this is actually an Integer..
+		origV, _ := ConvertToFloat64(orig.Data[i].Value)
+		recvV, _ := ConvertToFloat64(d.Value)
+
+		assert.True(t, d.Timestamp.Unix() > 0)
+		assert.Equal(t, origV, recvV)
+	}
 }
 
 func TestAddMixedMulti(t *testing.T) {
@@ -229,24 +254,8 @@ func TestAddMixedMulti(t *testing.T) {
 	err = c.Write(h)
 	assert.NoError(t, err)
 
-	var checkDatapoints = func(orig *MetricHeader) {
-		metric, err := c.ReadRaw(orig.Type, orig.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, len(orig.Data), len(metric), "Amount of datapoints does not match expected value")
-
-		for i, d := range metric {
-			assert.True(t, orig.Data[i].Timestamp.Equal(d.Timestamp))
-			// If the Type was Counter, this is actually an Integer..
-			origV, _ := ConvertToFloat64(orig.Data[i].Value)
-			recvV, _ := ConvertToFloat64(d.Value)
-
-			assert.True(t, d.Timestamp.Unix() > 0)
-			assert.Equal(t, origV, recvV)
-		}
-	}
-
-	checkDatapoints(&hOne)
-	checkDatapoints(&hTwo)
+	checkDatapoints(t, c, &hOne)
+	checkDatapoints(t, c, &hTwo)
 }
 
 func TestCheckErrors(t *testing.T) {
@@ -358,6 +367,8 @@ func TestBuckets(t *testing.T) {
 	tags := make(map[string]string)
 	tags["units"] = "bytes"
 	tags["env"] = "unittest"
+	// Needs https://issues.jboss.org/browse/HWKMETRICS-530 to be fixed first
+	// tags["whitespace plus+empty"] = "space+causes problems"
 	mdTags := MetricDefinition{ID: "test.buckets.1", Tags: tags, Type: Gauge}
 
 	ok, err := c.Create(mdTags)
@@ -437,6 +448,48 @@ func TestTagQueries(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(values))
 	assert.Equal(t, 3, len(values["hostname"]))
+}
+
+func TestEscapingDatapoints(t *testing.T) {
+	c, err := integrationClient()
+	assert.NoError(t, err)
+
+	startTime := time.Now().Truncate(time.Millisecond)
+
+	mone := Datapoint{Value: 2, Timestamp: startTime}
+	hOne := MetricHeader{
+		ID:   "test whitespace counter 1",
+		Data: []Datapoint{mone},
+		Type: Counter,
+	}
+
+	hTwo := MetricHeader{
+		ID:   "test+plus+counter+1",
+		Data: []Datapoint{mone},
+		Type: Counter,
+	}
+
+	err = c.Write([]MetricHeader{hOne, hTwo})
+	assert.NoError(t, err)
+
+	checkDatapoints(t, c, &hOne)
+	checkDatapoints(t, c, &hTwo)
+}
+
+func TestQueryEscape(t *testing.T) {
+	plusses := "1+2+3"
+	whitespace := "test whitespace JEE"
+	slashes := "test/my/mind"
+	combination := "test/with whitespace+plusses"
+
+	escapedPlusses := URLEscape(plusses)
+	escapedWhitespace := URLEscape(whitespace)
+	escapedSlashes := URLEscape(slashes)
+	escapedCombination := URLEscape(combination)
+	assert.Equal(t, escapedPlusses, "1%2B2%2B3")
+	assert.Equal(t, escapedWhitespace, "test%20whitespace%20JEE")
+	assert.Equal(t, escapedSlashes, "test%2Fmy%2Fmind")
+	assert.Equal(t, escapedCombination, "test%2Fwith%20whitespace%2Bplusses")
 }
 
 func getMetrics(prefix int) []MetricHeader {

@@ -108,7 +108,7 @@ func TypeFilter(t MetricType) Filter {
 
 // TagsFilter is a query parameter to filter with tags query
 func TagsFilter(t map[string]string) Filter {
-	j := tagsEncoder(t)
+	j := tagsEncoder(t, false)
 	return Param("tags", j)
 }
 
@@ -508,7 +508,7 @@ func (c *Client) Write(metrics []MetricHeader, o ...Modifier) error {
 	return nil
 }
 
-// ReadMetric reads metric datapoints from the server for the given metric
+// ReadRaw reads metric datapoints from the server for the given metric
 func (c *Client) ReadRaw(t MetricType, id string, o ...Modifier) ([]*Datapoint, error) {
 	o = prepend(o, c.URL("GET", TypeEndpoint(t), SingleMetricEndpoint(id), RawEndpoint()))
 
@@ -694,7 +694,7 @@ func TypeEndpoint(t MetricType) Endpoint {
 // SingleMetricEndpoint is a URL endpoint for requesting single metricID
 func SingleMetricEndpoint(id string) Endpoint {
 	return func(u *url.URL) {
-		addToURL(u, url.QueryEscape(id))
+		addToURL(u, URLEscape(id))
 	}
 }
 
@@ -708,7 +708,7 @@ func TagEndpoint() Endpoint {
 // TagsEndpoint is a URL endpoint which adds tags query
 func TagsEndpoint(tags map[string]string) Endpoint {
 	return func(u *url.URL) {
-		addToURL(u, tagsEncoder(tags))
+		addToURL(u, tagsEncoder(tags, true))
 	}
 }
 
@@ -731,11 +731,22 @@ func addToURL(u *url.URL, s string) *url.URL {
 	return u
 }
 
-func tagsEncoder(t map[string]string) string {
+func tagsEncoder(t map[string]string, escape bool) string {
 	tags := make([]string, 0, len(t))
 	for k, v := range t {
+		if escape {
+			k = URLEscape(k)
+			v = URLEscape(v)
+		}
 		tags = append(tags, fmt.Sprintf("%s:%s", k, v))
 	}
 	j := strings.Join(tags, ",")
 	return j
+}
+
+// URLEscape Is a fixed version of Golang's URL escaping handling
+func URLEscape(input string) string {
+	escaped := url.QueryEscape(input)
+	escaped = strings.Replace(escaped, "+", "%20", -1)
+	return escaped
 }
