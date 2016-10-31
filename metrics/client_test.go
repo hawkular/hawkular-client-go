@@ -178,7 +178,7 @@ func TestTagsModification(t *testing.T) {
 	// Add tags
 	tags := make(map[string]string)
 	tags["ab"] = "ac"
-	tags["host"] = "test"
+	tags["host"] = "test with space"
 	err = c.UpdateTags(Gauge, id, tags)
 	assert.Nil(t, err)
 

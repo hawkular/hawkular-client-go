@@ -411,6 +411,10 @@ func (c *Client) UpdateTags(t MetricType, id string, tags map[string]string, o .
 
 // DeleteTags deletes given tags from the definition
 func (c *Client) DeleteTags(t MetricType, id string, tags map[string]string, o ...Modifier) error {
+	for k, _ := range tags {
+		tags[k]="a"
+	}
+
 	o = prepend(o, c.URL("DELETE", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint(), TagsEndpoint(tags)))
 
 	r, err := c.Send(o...)
