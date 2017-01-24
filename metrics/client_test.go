@@ -1,3 +1,20 @@
+/*
+   Copyright 2015-2017 Red Hat, Inc. and/or its affiliates
+   and other contributors.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+*/
+
 package metrics
 
 import (
@@ -214,12 +231,22 @@ func checkDatapoints(t *testing.T, c *Client, orig *MetricHeader) {
 
 	for i, d := range metric {
 		assert.True(t, orig.Data[i].Timestamp.Equal(d.Timestamp))
-		// If the Type was Counter, this is actually an Integer..
-		origV, _ := ConvertToFloat64(orig.Data[i].Value)
-		recvV, _ := ConvertToFloat64(d.Value)
+		switch orig.Type {
+		case Counter:
+			origV, _ := orig.Data[i].Value.(int64)
+			recvV, _ := d.Value.(int64)
+			assert.Equal(t, int64(origV), int64(recvV))
+		case Gauge:
+			origV, _ := ConvertToFloat64(orig.Data[i].Value)
+			recvV, _ := ConvertToFloat64(d.Value)
+			assert.Equal(t, origV, recvV)
+		case String:
+			origV, _ := orig.Data[i].Value.(string)
+			recvV, _ := d.Value.(string)
+			assert.Equal(t, string(origV), string(recvV))
+		}
 
 		assert.True(t, d.Timestamp.Unix() > 0)
-		assert.Equal(t, origV, recvV)
 	}
 }
 
@@ -249,13 +276,21 @@ func TestAddMixedMulti(t *testing.T) {
 		Type: Gauge,
 	}
 
-	h := []MetricHeader{hOne, hTwo}
+	mThree := Datapoint{Value: "stringType_test", Timestamp: mTwoTwoT}
+	hThree := MetricHeader{
+		ID:   "test.multi.string.3",
+		Data: []Datapoint{mThree},
+		Type: String,
+	}
+
+	h := []MetricHeader{hOne, hTwo, hThree}
 
 	err = c.Write(h)
 	assert.NoError(t, err)
 
 	checkDatapoints(t, c, &hOne)
 	checkDatapoints(t, c, &hTwo)
+	checkDatapoints(t, c, &hThree)
 }
 
 func TestCheckErrors(t *testing.T) {

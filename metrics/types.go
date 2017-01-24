@@ -1,5 +1,5 @@
 /*
-   Copyright 2015-2016 Red Hat, Inc. and/or its affiliates
+   Copyright 2015-2017 Red Hat, Inc. and/or its affiliates
    and other contributors.
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -45,12 +45,12 @@ type Parameters struct {
 
 // Client is HawkularClient's internal data structure
 type Client struct {
-	Tenant       string
-	url          *url.URL
-	client       *http.Client
-	Credentials  string // base64 encoded username/password for Basic header
-	Token        string // authentication token for Bearer header
-	pool         chan (*poolRequest)
+	Tenant      string
+	url         *url.URL
+	client      *http.Client
+	Credentials string // base64 encoded username/password for Basic header
+	Token       string // authentication token for Bearer header
+	pool        chan (*poolRequest)
 }
 
 type poolRequest struct {
@@ -85,6 +85,7 @@ const (
 	Availability            = "availability"
 	Counter                 = "counter"
 	Generic                 = "metrics"
+	String                  = "string"
 )
 
 // MetricHeader is the header struct for time series, which has identifiers (tenant, type, id) for uniqueness

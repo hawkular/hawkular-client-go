@@ -1,5 +1,5 @@
 /*
-   Copyright 2015-2016 Red Hat, Inc. and/or its affiliates
+   Copyright 2015-2017 Red Hat, Inc. and/or its affiliates
    and other contributors.
 
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -685,6 +685,8 @@ func TypeEndpoint(t MetricType) Endpoint {
 			addToURL(u, "gauges")
 		case Counter:
 			addToURL(u, "counters")
+		case String:
+			addToURL(u, "strings")
 		default:
 			addToURL(u, string(t))
 		}
