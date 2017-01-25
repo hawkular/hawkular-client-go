@@ -41,7 +41,7 @@ func integrationClient() (*Client, error) {
 
 	// fmt.Printf("Tenant: %s\n", t)
 
-	p := Parameters{Tenant: t, Url: "http://localhost:8080"}
+	p := Parameters{Tenant: t, Url: "http://localhost:8080", AdminToken: "secret"}
 	// p := Parameters{Tenant: t, Host: "localhost:8180"}
 	// p := Parameters{Tenant: t, Url: "http://192.168.1.105:8080"}
 	// p := Parameters{Tenant: t, Host: "209.132.178.218:18080"}

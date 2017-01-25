@@ -41,12 +41,22 @@ const (
 	baseURL            string        = "hawkular/metrics"
 	defaultConcurrency int           = 1
 	timeout            time.Duration = time.Duration(30 * time.Second)
+	tenantHeader       string        = "Hawkular-Tenant"
+	adminHeader        string        = "Hawkular-Admin-Token"
 )
 
 // Tenant function replaces the Tenant in the request (instead of using the default in Client parameters)
 func Tenant(tenant string) Modifier {
 	return func(r *http.Request) error {
-		r.Header.Set("Hawkular-Tenant", tenant)
+		r.Header.Set(tenantHeader, tenant)
+		return nil
+	}
+}
+
+// AdminAuthentication function to add metrics' admin token to the request
+func AdminAuthentication(token string) Modifier {
+	return func(r *http.Request) error {
+		r.Header.Add(adminHeader, token)
 		return nil
 	}
 }
@@ -180,7 +190,7 @@ func (c *Client) createRequest() *http.Request {
 		Host:       c.url.Host,
 	}
 	req.Header.Add("Content-Type", "application/json")
-	req.Header.Add("Hawkular-Tenant", c.Tenant)
+	req.Header.Add(tenantHeader, c.Tenant)
 
 	if len(c.Credentials) > 0 {
 		req.Header.Add("Authorization", fmt.Sprintf("Basic %s", c.Credentials))
@@ -222,7 +232,7 @@ func (c *Client) Send(o ...Modifier) (*http.Response, error) {
 
 // Tenants returns a list of tenants from the server
 func (c *Client) Tenants(o ...Modifier) ([]*TenantDefinition, error) {
-	o = prepend(o, c.URL("GET", TenantEndpoint()))
+	o = prepend(o, c.URL("GET", TenantEndpoint()), AdminAuthentication(c.AdminToken))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -252,7 +262,7 @@ func (c *Client) Tenants(o ...Modifier) ([]*TenantDefinition, error) {
 
 // CreateTenant creates a tenant definition on the server
 func (c *Client) CreateTenant(tenant TenantDefinition, o ...Modifier) (bool, error) {
-	o = prepend(o, c.URL("POST", TenantEndpoint()), Data(tenant))
+	o = prepend(o, c.URL("POST", TenantEndpoint()), AdminAuthentication(c.AdminToken), Data(tenant))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -266,9 +276,8 @@ func (c *Client) CreateTenant(tenant TenantDefinition, o ...Modifier) (bool, err
 		if err, ok := err.(*HawkularClientError); ok {
 			if err.Code != http.StatusConflict {
 				return false, err
-			} else {
-				return false, nil
 			}
+			return false, nil
 		}
 		return false, err
 	}
@@ -292,9 +301,8 @@ func (c *Client) Create(md MetricDefinition, o ...Modifier) (bool, error) {
 		if err, ok := err.(*HawkularClientError); ok {
 			if err.Code != http.StatusConflict {
 				return false, err
-			} else {
-				return false, nil
 			}
+			return false, nil
 		}
 		return false, err
 	}
@@ -619,6 +627,7 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 		Tenant:      p.Tenant,
 		Credentials: creds,
 		Token:       p.Token,
+		AdminToken:  p.AdminToken,
 		client:      c,
 		pool:        make(chan *poolRequest, p.Concurrency),
 	}

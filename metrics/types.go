@@ -41,6 +41,7 @@ type Parameters struct {
 	Password    string
 	Token       string
 	Concurrency int
+	AdminToken  string
 }
 
 // Client is HawkularClient's internal data structure
@@ -50,6 +51,7 @@ type Client struct {
 	client      *http.Client
 	Credentials string // base64 encoded username/password for Basic header
 	Token       string // authentication token for Bearer header
+	AdminToken  string // authentication for items behind admin token
 	pool        chan (*poolRequest)
 }
 
