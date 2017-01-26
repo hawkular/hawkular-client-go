@@ -39,8 +39,6 @@ func integrationClient() (*Client, error) {
 		return nil, err
 	}
 
-	// fmt.Printf("Tenant: %s\n", t)
-
 	p := Parameters{Tenant: t, Url: "http://localhost:8080", AdminToken: "secret"}
 	// p := Parameters{Tenant: t, Host: "localhost:8180"}
 	// p := Parameters{Tenant: t, Url: "http://192.168.1.105:8080"}
@@ -214,8 +212,13 @@ func TestTagsModification(t *testing.T) {
 
 	assert.True(t, reflect.DeepEqual(tags, mdTags), "Tags did not match the updated ones")
 
+	tagNamesList := make([]string, 0, len(tags))
+	for k, _ := range tags {
+		tagNamesList = append(tagNamesList, k)
+	}
+
 	// Delete some metric tags
-	err = c.DeleteTags(Gauge, id, tags)
+	err = c.DeleteTags(Gauge, id, tagNamesList)
 	assert.Nil(t, err)
 
 	// Fetch metric - check that tags were deleted

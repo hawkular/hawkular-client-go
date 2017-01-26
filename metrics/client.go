@@ -418,8 +418,8 @@ func (c *Client) UpdateTags(t MetricType, id string, tags map[string]string, o .
 }
 
 // DeleteTags deletes given tags from the definition
-func (c *Client) DeleteTags(t MetricType, id string, tags map[string]string, o ...Modifier) error {
-	o = prepend(o, c.URL("DELETE", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint(), TagsEndpoint(tags)))
+func (c *Client) DeleteTags(t MetricType, id string, tags []string, o ...Modifier) error {
+	o = prepend(o, c.URL("DELETE", TypeEndpoint(t), SingleMetricEndpoint(id), TagEndpoint(), TagNamesEndpoint(tags)))
 
 	r, err := c.Send(o...)
 	if err != nil {
@@ -720,6 +720,18 @@ func TagEndpoint() Endpoint {
 func TagsEndpoint(tags map[string]string) Endpoint {
 	return func(u *url.URL) {
 		addToURL(u, tagsEncoder(tags, true))
+	}
+}
+
+// TagNamesEndpoint is a URL endpoint which adds tags names (no values)
+func TagNamesEndpoint(tagNames []string) Endpoint {
+	return func(u *url.URL) {
+		escapedNames := make([]string, 0, len(tagNames))
+		for _, v := range tagNames {
+			escapedNames = append(escapedNames, URLEscape(v))
+		}
+		tags := strings.Join(escapedNames, ",")
+		addToURL(u, tags)
 	}
 }
 
