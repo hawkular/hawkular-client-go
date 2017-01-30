@@ -4,6 +4,10 @@ Michael Burman
 :toc: macro
 :toc-title:
 
+ifdef::env-github[]
+image:https://travis-ci.org/hawkular/hawkular-client-go.svg?branch=master["Build Status", link="https://travis-ci.org/hawkular/hawkular-client-go"]
+endif::[]
+
 toc::[]
 
 == Introduction
