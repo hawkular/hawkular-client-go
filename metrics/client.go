@@ -122,6 +122,12 @@ func TagsFilter(t map[string]string) Filter {
 	return Param("tags", j)
 }
 
+// TagsQueryFilter is a query parameter for the new style tags query language
+func TagsQueryFilter(query ...string) Filter {
+	tagQl := strings.Join(query, " AND ")
+	return Param("tags", tagQl)
+}
+
 // IdFilter is a query parameter to add filtering by id name
 func IdFilter(regexp string) Filter {
 	return Param("id", regexp)
@@ -602,7 +608,7 @@ func NewHawkularClient(p Parameters) (*Client, error) {
 		Host:   uri.Host,
 		Path:   uri.Path,
 		Scheme: uri.Scheme,
-		Opaque: fmt.Sprintf("//%s/%s", uri.Host, uri.Path),
+		Opaque: fmt.Sprintf("/%s", uri.Path),
 	}
 
 	c := &http.Client{
