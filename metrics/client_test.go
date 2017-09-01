@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -528,6 +529,28 @@ func TestQueryEscape(t *testing.T) {
 	assert.Equal(t, escapedWhitespace, "test%20whitespace%20JEE")
 	assert.Equal(t, escapedSlashes, "test%2Fmy%2Fmind")
 	assert.Equal(t, escapedCombination, "test%2Fwith%20whitespace%2Bplusses")
+}
+
+func TestDatapointMarshal(t *testing.T) {
+	d := Datapoint{
+		Value:     float64(1.2),
+		Timestamp: time.Now(),
+		Tags: map[string]string{
+			"a": "b",
+		},
+	}
+
+	b, err := json.Marshal(d)
+	assert.NoError(t, err)
+
+	ud := &Datapoint{}
+
+	err = json.Unmarshal(b, ud)
+	assert.NoError(t, err)
+
+	assert.Equal(t, 1, len(ud.Tags))
+	assert.Equal(t, d.Value, ud.Value)
+	assert.Equal(t, d.Timestamp.Unix(), ud.Timestamp.Unix())
 }
 
 func getMetrics(prefix int) []MetricHeader {
