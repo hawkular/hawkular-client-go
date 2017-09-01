@@ -34,7 +34,7 @@ type HawkularClientError struct {
 
 // Parameters is a struct used as initialization parameters to the client
 type Parameters struct {
-	Tenant      string // Technically optional, but requires setting Tenant() option everytime
+	Tenant      string // Technically optional, but requires setting Tenant() option every time
 	Url         string
 	TLSConfig   *tls.Config
 	Username    string
